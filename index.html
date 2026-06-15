@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>다관절 사족보행 로봇 시뮬레이터</title>
+    <!-- Tailwind CSS 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter 폰트 로드 -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <!-- GSAP (애니메이션 라이브러리) 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+    <!-- GIF 저장 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; overscroll-behavior: none; }
+        
+        input[type="number"], input[type="text"], textarea { 
+            appearance: textfield; 
+            -moz-appearance: textfield; 
+        }
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        textarea { resize: none; }
+        .label { color: #FFF; font-family: 'Inter', sans-serif; font-size: 12px; padding: 2px; background: rgba(0, 0, 0, 0.6); border-radius: 3px; pointer-events: none; }
+        .leg-label { 
+            color: #10b981; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: bold;
+            padding: 2px 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid #10b981; border-radius: 4px; pointer-events: none;
+        }
+        .front-label {
+            color: #facc15; font-family: 'Inter', sans-serif; font-size: 16px; font-weight: bold;
+            text-shadow: 0 0 5px black; pointer-events: none;
+        }
+        #canvas-container canvas { touch-action: none; outline: none; }
+        .motor-control.selected, .structure-wrapper.selected { border: 2px solid #facc15; box-shadow: 0 0 10px #facc15; border-radius: 0.375rem; }
+        .pos-btn { background-color: #4b5563; }
+        .pos-btn:hover:not(:disabled) { background-color: #374151; }
+        .pos-btn:disabled { background-color: #374151; opacity: 0.5; cursor: not-allowed; }
+        select { background-color: #4b5563; color: white; border: 1px solid #6b7280; padding: 0.5rem; border-radius: 0.375rem; cursor: pointer; }
+        select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); }
+        .structure-input { width: 3rem; } 
+        .structure-label { width: 4.5rem; }
+        .structure-wrapper { justify-content: space-around; padding: 2px 0; }
+
+        /* 데스크톱 제어판 폭 조절 핸들 */
+        #control-panel-resizer {
+            width: 8px;
+            cursor: col-resize;
+            background: linear-gradient(to right, rgba(31,41,55,0.2), rgba(75,85,99,0.95), rgba(31,41,55,0.2));
+            position: relative;
+            z-index: 20;
+            flex: 0 0 8px;
+        }
+        #control-panel-resizer::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 48px;
+            transform: translate(-50%, -50%);
+            border-left: 1px solid rgba(255,255,255,0.35);
+            border-right: 1px solid rgba(255,255,255,0.25);
+        }
+        #control-panel-resizer:hover { background-color: rgba(96,165,250,0.35); }
+        body.resizing-panel { cursor: col-resize; user-select: none; }
+        @media (max-width: 767px) {
+            #control-panel { width: 100% !important; min-width: 0 !important; max-width: none !important; }
+            #control-panel-resizer { display: none; }
+        }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body class="bg-gray-900 text-white overflow-hidden">
+    <div class="flex flex-col md:flex-row h-screen">
+        
+        <!-- 제어판 (좌측) -->
+        <div id="control-panel" class="w-full md:w-80 h-1/3 md:h-screen bg-gray-800 p-4 overflow-y-auto shadow-lg rounded-lg md:rounded-r-lg md:rounded-l-none z-10 flex-shrink-0">
+            <h1 class="text-2xl font-bold mb-4 text-center flex items-center justify-center gap-2">
+                사족보행로봇 제어
+                <div id="status-light" class="w-3 h-3 rounded-full bg-gray-500" title="애니메이션 상태"></div>
+            </h1>
+            
+            <!-- 1. 리셋 및 적용 버튼 상단 배치 -->
+            <div class="grid grid-cols-2 gap-2 mb-4 border-b border-gray-700 pb-4">
+                <button id="btn-reset" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-2 rounded-lg transition duration-200 text-sm">초기 자세</button>
+                <button id="btn-apply-changes" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-2 rounded-lg transition duration-200 text-sm">각도 변화값 적용</button>
+                
+                <!-- 가상 중력 스위치 -->
+                <button id="btn-toggle-gravity" class="col-span-2 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-2 rounded-lg transition duration-200 text-sm flex items-center justify-center gap-2">
+                    🌍 가상 중력 (지면 밀착) : ON
+                </button>
+            </div>
+            <!-- 2. 모터 각도 제어 및 코드 자동 생성 -->
+            <h2 class="text-lg font-semibold mb-2 text-center">모터 각도 제어</h2>
+            <div id="motor-controls" class="grid grid-cols-3 gap-1 mb-2"></div>
+            
+            <!-- Work 코드 생성 및 복사 영역 -->
+            <div class="mb-4 border-b border-gray-700 pb-4 flex gap-1">
+                <input type="text" id="output-work-code" readonly class="w-full p-2 bg-gray-950 border border-gray-600 rounded-md text-green-400 text-[11px] font-mono" placeholder="변화값 적용 시 코드가 생성됩니다.">
+                <button id="btn-copy-code" class="bg-gray-600 hover:bg-gray-500 px-3 rounded-lg text-xs font-bold transition whitespace-nowrap">복사</button>
+            </div>
+            <!-- 3. 동작 매크로 -->
+            <h2 class="text-lg font-semibold mb-2 text-center">동작 매크로</h2>
+            <div class="grid grid-cols-3 gap-1 mb-4 border-b border-gray-700 pb-4">
+                <!-- 1줄 -->
+                <button id="btn-macro-wave1" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">손인사1</button>
+                <button id="btn-macro-forward" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">앞으로</button>
+                <button id="btn-macro-wave2" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">손인사2</button>
+                
+                <!-- 2줄 -->
+                <button id="btn-macro-left" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">왼쪽으로</button>
+                <button id="btn-macro-sitstand" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] whitespace-nowrap">앉았다 기립</button>
+                <button id="btn-macro-right" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">오른쪽으로</button>
+                <!-- 3줄 -->
+                <button id="btn-macro-standspread" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] whitespace-nowrap">서서 펼치기</button>
+                <button id="btn-macro-backward" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">뒤로</button>
+                <button id="btn-macro-sitspread" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] whitespace-nowrap">앉아 펼치기</button>
+            </div>
+            <!-- 4. 단일/다중 로봇 코드 실행 -->
+            <h2 class="text-lg font-semibold mb-2 text-center">로봇 코드 실행</h2>
+            <a href="https://sites.google.com/view/4leg-robot-library/library" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center gap-2 w-full bg-blue-900/50 hover:bg-blue-800 border border-blue-700 text-blue-200 hover:text-white font-medium py-2 px-2 rounded-lg transition duration-200 text-xs mb-3 text-center decoration-transparent">
+                📚 동작 라이브러리 홈페이지 가기 ↗
+            </a>
+            <div class="mb-2 flex gap-1">
+                <input type="text" id="input-single-code" class="w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white text-xs font-mono" placeholder="Work(...) 1줄 코드">
+                <button id="btn-exec-single" class="bg-green-600 hover:bg-green-700 px-3 rounded-lg text-sm font-bold transition whitespace-nowrap">실행</button>
+            </div>
+            <div class="mb-4 border-b border-gray-700 pb-4">
+                <textarea id="input-multi-code" class="w-full h-48 p-2 bg-gray-900 border border-gray-600 rounded-md text-white text-xs font-mono whitespace-pre" placeholder="Work(...)&#10;basic.pause(3000)&#10;Work(...) 여러 줄 입력"></textarea>
+                <button id="btn-exec-multi" class="w-full mt-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 text-sm">순차 실행</button>
+                <button id="btn-export-gif" class="w-full mt-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 text-sm">순차 실행 후 GIF 저장</button>
+                <p id="gif-status" class="mt-1 mb-2 text-[11px] text-amber-300 min-h-[1rem] text-center">60fps 부드러운 캡처</p>
+                <div id="return-correction-panel" class="mt-2 p-2 bg-gray-950 border border-gray-700 rounded-lg">
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                        <p class="text-[11px] font-semibold text-gray-200 pt-1">기본 자세 복귀 보정값</p>
+                        <div class="flex flex-col gap-1 min-w-[7.5rem]">
+                            <button id="btn-add-return-correction" type="button" class="bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600 disabled:opacity-60 text-white font-bold py-1 px-2 rounded text-[11px] transition">보정 Work 추가</button>
+                            <button id="btn-add-return-function" type="button" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-1 px-2 rounded text-[11px] transition">복귀 함수 추가</button>
+                        </div>
+                    </div>
+                    <p id="return-correction-summary" class="text-[10px] text-gray-400 mb-1">여러 줄 코드를 입력하면 12개 모터의 누적 변화값과 0으로 되돌릴 보정값을 보여줍니다.</p>
+                    <p class="text-[10px] text-violet-200/90 mb-2">복귀 함수는 동작 변화가 커서 합계가 0이어도 기본 자세로 정확히 돌아오지 않을 때 사용합니다.</p>
+                    <div class="text-[10px] text-gray-400 mb-1">입력 코드 합계</div>
+                    <div id="return-total-values" class="grid grid-cols-4 gap-1 mb-2"></div>
+                    <div class="text-[10px] text-gray-400 mb-1">추가할 보정 Work 값</div>
+                    <div id="return-correction-values" class="grid grid-cols-4 gap-1"></div>
+                </div>
+            </div>
+            <!-- 5. 조정 대상 및 위치 제어 -->
+            <h2 class="text-lg font-semibold mb-2 text-center">조정 대상 선택</h2>
+            <div class="mb-2">
+                 <select id="item-select" class="w-full text-sm">
+                     <option value="-1">-- 선택 --</option>
+                 </select>
+            </div>
+            <div id="position-controls" class="grid grid-cols-3 gap-2 mb-4">
+                 <button data-axis="x" data-amount="0.5" class="pos-btn text-white font-bold py-2 px-1 rounded-lg transition duration-200 disabled:opacity-50 text-sm" disabled>+X</button>
+                 <button data-axis="y" data-amount="0.5" class="pos-btn text-white font-bold py-2 px-1 rounded-lg transition duration-200 disabled:opacity-50 text-sm" disabled>+Y</button>
+                 <button data-axis="z" data-amount="0.5" class="pos-btn text-white font-bold py-2 px-1 rounded-lg transition duration-200 disabled:opacity-50 text-sm" disabled>+Z</button>
+                 <button data-axis="x" data-amount="-0.5" class="pos-btn text-white font-bold py-2 px-1 rounded-lg transition duration-200 disabled:opacity-50 text-sm" disabled>-X</button>
+                 <button data-axis="y" data-amount="-0.5" class="pos-btn text-white font-bold py-2 px-1 rounded-lg transition duration-200 disabled:opacity-50 text-sm" disabled>-Y</button>
+                 <button data-axis="z" data-amount="-0.5" class="pos-btn text-white font-bold py-2 px-1 rounded-lg transition duration-200 disabled:opacity-50 text-sm" disabled>-Z</button>
+            </div>
+            <details class="mt-4 bg-gray-900 rounded-lg">
+                <summary class="cursor-pointer p-2 font-semibold text-sm text-center">로봇 구조 (고급)</summary>
+                <div class="p-2 border-t border-gray-700">
+                    <div id="structure-controls" class="space-y-1 max-h-72 overflow-y-auto pr-2"></div>
+                    <button id="btn-apply-structure" class="w-full mt-3 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 text-sm">구조 적용 (뼈대 재생성)</button>
+                    <button id="btn-export-structure" class="w-full mt-2 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 text-sm">구조 데이터 내보내기</button>
+                    <textarea id="export-data" readonly class="w-full mt-2 p-2 bg-gray-950 border border-gray-600 rounded-md text-xs h-32" placeholder="여기에 구조 데이터가 JSON으로 표시됩니다..."></textarea>
+                </div>
+            </details>
+            <!-- 6. 저작권 정보 (CCL) -->
+            <div class="mt-8 pt-4 border-t border-gray-700 text-center text-xs text-gray-400">
+                <p class="font-bold text-gray-300 mb-2">🤖 교육용 로봇 시뮬레이터</p>
+                <div class="flex justify-center items-center gap-1 mb-2">
+                    <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.ko" target="_blank" rel="noopener noreferrer">
+                        <img src="https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png" alt="CC BY-NC-SA" class="h-6 opacity-80 hover:opacity-100 transition">
+                    </a>
+                </div>
+                <p class="leading-relaxed">본 시뮬레이터는 크리에이티브 커먼즈 <br>저작자표시-비영리-동일조건변경허락<br>라이선스에 따라 이용할 수 있습니다.</p>
+                <button id="btn-open-privacy" type="button" class="mt-4 w-full bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-2 px-3 rounded-lg transition text-xs">
+                    개인정보 처리방침 보기
+                </button>
+            </div>
+        </div>
+        <div id="control-panel-resizer" class="hidden md:block" title="드래그해서 제어판 폭 조절"></div>
+
+        <!-- 3D 캔버스 (우측) -->
+        <div class="flex-1 h-2/3 md:h-screen relative">
+            <div id="canvas-container" class="w-full h-full absolute top-0 left-0"></div>
+            <div id="label-container" class="w-full h-full absolute top-0 left-0"></div>
+            <div class="absolute top-2 left-2 bg-gray-900 bg-opacity-70 p-2 rounded-lg text-xs z-10">
+                <p>뷰 이동: 마우스 드래그 / 줌: 휠</p>
+                <p>모터 이동: 모터 구체 클릭 & 드래그</p>
+                <p>수평면 제어: '조정 대상' 메뉴에서 [수평면] 선택 후 X, Y, Z 버튼 클릭</p>
+            </div>
+        </div>
+    </div>
+    <!-- 개인정보 처리방침 팝업 -->
+    <div id="privacy-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+        <div class="w-full max-w-3xl max-h-[90vh] rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800">
+                <h2 id="privacy-modal-title" class="text-lg font-bold text-white">개인정보 처리방침</h2>
+                <button id="btn-close-privacy" type="button" class="text-gray-300 hover:text-white text-2xl leading-none" aria-label="개인정보 처리방침 닫기">×</button>
+            </div>
+                    <div class="p-5 text-sm leading-relaxed text-gray-300 space-y-4 max-h-[70vh] overflow-y-auto">
+                        <h2 class="text-sm font-bold text-white">다관절 사족보행 로봇 시뮬레이터 개인정보 처리방침</h2>
+                        <p>다관절 사족보행 로봇 시뮬레이터는 학생들이 12관절 사족보행 로봇의 서보모터 각도 변화, 관절 간 상호작용, 자세 변화 등을 탐색할 수 있도록 제작된 웹 기반 교육용 시뮬레이터입니다. 본 시뮬레이터는 이용자의 개인정보 보호를 중요하게 생각하며, 다음과 같이 개인정보 처리방침을 안내합니다.</p>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">1. 개인정보의 수집 및 이용</h3>
+                            <p>본 시뮬레이터는 이용자의 개인정보를 수집하지 않습니다.</p>
+                            <p>회원가입, 로그인, 이름, 학번, 이메일, 연락처 등 개인을 식별할 수 있는 정보를 요구하지 않으며, 이용자가 입력한 서보모터 각도값, 동작 코드, 시뮬레이션 설정값은 시뮬레이터 화면에서 동작을 확인하기 위한 목적으로만 사용됩니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">2. 개인정보의 보유 및 이용 기간</h3>
+                            <p>본 시뮬레이터는 개인정보를 수집하지 않으므로, 별도의 개인정보 보유 및 이용 기간이 없습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">3. 개인정보의 제3자 제공</h3>
+                            <p>본 시뮬레이터는 개인정보를 수집하지 않으므로, 개인정보를 제3자에게 제공하지 않습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">4. 개인정보 처리의 위탁</h3>
+                            <p>본 시뮬레이터는 개인정보 처리 업무를 외부 업체나 기관에 위탁하지 않습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">5. 개인정보의 파기</h3>
+                            <p>본 시뮬레이터는 개인정보를 수집하거나 저장하지 않으므로, 별도의 개인정보 파기 절차가 없습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">6. 자동으로 수집되는 정보</h3>
+                            <p>본 시뮬레이터는 별도의 데이터베이스를 운영하지 않으며, 이용자의 입력값을 서버에 저장하지 않습니다. 또한 이용자 식별을 위한 쿠키, 로그인 정보, 학습 이력, 접속 기록 등을 자체적으로 수집하지 않습니다.</p>
+                            <p>다만, 본 시뮬레이터는 GitHub Pages를 통해 제공되므로, 서비스 제공 과정에서 GitHub 등 호스팅 플랫폼의 기술적 접속 기록이 처리될 수 있습니다. 이 경우 해당 정보는 본 시뮬레이터 운영자가 직접 수집하거나 관리하지 않습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">7. 정보주체와 법정대리인의 권리</h3>
+                            <p>본 시뮬레이터는 개인정보를 수집하지 않으므로, 개인정보 열람, 정정, 삭제, 처리정지 요구의 대상이 되는 개인정보를 보유하고 있지 않습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">8. 개인정보 보호를 위한 조치</h3>
+                            <p>본 시뮬레이터는 학생 개인정보를 입력하지 않고 사용할 수 있도록 설계되었습니다. 수업 활용 시에도 학생의 이름, 학번, 연락처 등 개인정보를 입력하지 않도록 안내하며, 개인정보 및 학습데이터가 저장되지 않도록 운영합니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">9. 문의 안내</h3>
+                            <p>본 시뮬레이터는 개인정보를 수집하지 않습니다. 관련 문의는 수업 안내 경로를 통해 할 수 있습니다.</p>
+                        </section>
+                        <section>
+                            <h3 class="font-semibold text-gray-100">10. 개인정보 처리방침의 변경</h3>
+                            <p>본 개인정보 처리방침은 시뮬레이터 기능 변경, 운영 방식 변경, 관련 법령 및 학교 지침 변경 등에 따라 수정될 수 있습니다. 변경 사항이 있을 경우 서비스 화면 또는 수업 안내 자료를 통해 안내합니다.</p>
+                            <p class="font-semibold text-gray-100">시행일: 2026년 5월 20일</p>
+                        </section>
+                    </div>
+            <div class="px-5 py-3 border-t border-gray-700 bg-gray-800 text-right">
+                <button id="btn-close-privacy-bottom" type="button" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm">닫기</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            const modal = document.getElementById('privacy-modal');
+            const openBtn = document.getElementById('btn-open-privacy');
+            const closeBtn = document.getElementById('btn-close-privacy');
+            const closeBottomBtn = document.getElementById('btn-close-privacy-bottom');
+            function openPrivacyModal() {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                document.body.classList.add('overflow-hidden');
+            }
+            function closePrivacyModal() {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                document.body.classList.remove('overflow-hidden');
+            }
+            openBtn?.addEventListener('click', openPrivacyModal);
+            closeBtn?.addEventListener('click', closePrivacyModal);
+            closeBottomBtn?.addEventListener('click', closePrivacyModal);
+            modal?.addEventListener('click', function (event) {
+                if (event.target === modal) closePrivacyModal();
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && !modal.classList.contains('hidden')) closePrivacyModal();
+            });
+        })();
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+        import { DragControls } from 'three/addons/controls/DragControls.js';
+        // 가상 중력 변수 (기본값 true)
+        let useGravity = true;
+        let scene, camera, renderer, orbitControls, dragControls;
+        let labelRenderer;
+        let robot, body;
+        const joints = [];
+        const planeVisuals = []; 
+        let limbsGroup = new THREE.Group();
+        const motorInputs = [];
+        const motorValueDisplays = [];
+        const motorControlDivs = [];
+        const structureControlWrappers = {}; 
+        const draggableObjects = [];
+        let selectedIndex = null; 
+        let selectedType = null; 
+        const positionButtons = [];
+        const itemSelectDropdown = document.getElementById('item-select'); 
+        const CoreWLstF = [110, 70, 90, 110, 70, 90, 110, 70, 90, 110, 70, 90];
+        
+        let isAnimating = false;
+        const DEG_TO_RAD = Math.PI / 180;
+        
+        const jointAxes = ["x", "x", "z", "x", "x", "z", "x", "x", "z", "x", "x", "z"];
+        const motorDir = [1, 1, 1, 1, 1, 1, 1, -1, 1, -1, 1, 1];
+        const UIWLstF = [149, 70, 60, 40, 95, 58, 33, 90, 85, 141, 69, 83];
+        let WorkLst = [...CoreWLstF]; 
+        let robotStructure = {
+            motorPositions: [
+                { "x": 4.5, "y": -1.5, "z": -4.5 },
+                { "x": 1, "y": 4.5, "z": -4.5 },
+                { "x": -7, "y": 0, "z": -5 },
+                { "x": 4.5, "y": -0.5, "z": 5.5 },
+                { "x": 0, "y": -6, "z": 0 },
+                { "x": 6.5, "y": 0, "z": -5.5 },
+                { "x": 4.5, "y": 4.5, "z": -2 },
+                { "x": 0.5, "y": 4, "z": 4 },
+                { "x": -7, "y": 0, "z": 5 },
+                { "x": 4, "y": -2, "z": 4 },
+                { "x": -0.09, "y": -6.7, "z": 0.1 },
+                { "x": 6.5, "y": 0, "z": 4.5 }
+            ],
+            motorPlanes: [
+                { "x": -20, "y": -20, "z": 90 },
+                { "x": -50, "y": 90, "z": 10 },
+                { "x": -90, "y": 0, "z": 0 },
+                { "x": 35, "y": 105, "z": 70 },
+                { "x": 0, "y": 85, "z": 0 },
+                { "x": -90, "y": 0, "z": 0 },
+                { "x": 65, "y": -15, "z": -90 },
+                { "x": 45, "y": 90, "z": 0 },
+                { "x": -90, "y": 0, "z": 0 },
+                { "x": -70, "y": -85, "z": 0 },
+                { "x": -25, "y": -90, "z": -25 },
+                { "x": -85, "y": 0, "z": 0 }
+            ],
+            footOffsets: [
+                { "id": "FL", "motorIndex": 0, "x": -14, "y": -1.5, "z": 0.5 },
+                { "id": "FR", "motorIndex": 3, "x": -13, "y": -0.5, "z": 2 },
+                { "id": "BL", "motorIndex": 6, "x": -12, "y": -0.5, "z": 0 },
+                { "id": "BR", "motorIndex": 9, "x": -12.5, "y": 0, "z": -0.5 }
+            ]
+        };
+        const statusLight = document.getElementById('status-light');
+        const tempVector = new THREE.Vector3();
+        const limbMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.8 }); 
+        const footMat = new THREE.MeshStandardMaterial({ color: 0x10b981 });
+        const footGeo = new THREE.SphereGeometry(0.8);
+        const planeVisualMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+        function init() {
+            const container=document.getElementById('canvas-container'), labelContainer=document.getElementById('label-container');
+            scene=new THREE.Scene(); 
+            scene.background=new THREE.Color(0x111827); 
+            camera=new THREE.PerspectiveCamera(75, container.clientWidth/container.clientHeight, 0.1, 1000); 
+            camera.position.set(1.46, 25.60, -29.71);
+            
+            renderer=new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); 
+            renderer.setSize(container.clientWidth, container.clientHeight); 
+            renderer.setPixelRatio(window.devicePixelRatio); 
+            renderer.shadowMap.enabled = true; 
+            container.appendChild(renderer.domElement);
+            
+            labelRenderer=new CSS2DRenderer(); 
+            labelRenderer.setSize(container.clientWidth, container.clientHeight); 
+            labelContainer.appendChild(labelRenderer.domElement);
+            
+            orbitControls=new OrbitControls(camera, labelRenderer.domElement); 
+            orbitControls.enableDamping = true; 
+            orbitControls.dampingFactor = 0.1; 
+            orbitControls.target.set(0, 5, 0);
+            
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5)); 
+            const dirLight=new THREE.DirectionalLight(0xffffff, 1); 
+            dirLight.position.set(10, 20, 5); 
+            dirLight.castShadow = true; 
+            scene.add(dirLight);
+            
+            const ground=new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0x374151 })); 
+            ground.rotation.x = -Math.PI / 2; 
+            ground.receiveShadow = true; 
+            scene.add(ground);
+            createRobot(); 
+            addFrontIndicator();
+            initDragControls(); 
+            createMotorControls(); 
+            createStructureControls(); 
+            initPositionControls(); 
+            initResizableControlPanel();
+            
+            resetPosition(false); 
+            updateJointPositionsAndCreateLimbs();
+            updateVisualPlanes();
+            
+            window.addEventListener('resize', onWindowResize); 
+            animate();
+        }
+        function addFrontIndicator() {
+            const dir = new THREE.Vector3(0, 0, -1); const origin = new THREE.Vector3(0, 0.1, 0); const length = 15; const hex = 0xfacc15;
+            const arrowHelper = new THREE.ArrowHelper(dir, origin, length, hex, 2, 1); scene.add(arrowHelper);
+            const div = document.createElement('div'); div.className = 'front-label'; div.textContent = 'FRONT';
+            const label = new CSS2DObject(div); label.position.set(0, 0, -16); scene.add(label);
+        }
+        function createRobot() {
+            robot = new THREE.Group(); scene.add(robot); limbsGroup = new THREE.Group(); robot.add(limbsGroup);
+            const bodyGeo = new THREE.BoxGeometry(14, 4, 10); 
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4b5563 }); 
+            body = new THREE.Mesh(bodyGeo, bodyMat); 
+            body.castShadow = true; 
+            body.position.y = 12; 
+            robot.add(body);
+            
+            const jointMat = new THREE.MeshStandardMaterial({ color: 0xef4444 }); 
+            
+            const legs = [
+                { name: 'FL', indices: [2, 1, 0] },
+                { name: 'FR', indices: [5, 4, 3] },
+                { name: 'BL', indices: [8, 7, 6] },
+                { name: 'BR', indices: [11, 10, 9] }
+            ];
+            
+            legs.forEach((leg, legIdx) => {
+                const [s_idx, k1_idx, k2_idx] = leg.indices;
+                
+                const s_p=robotStructure.motorPositions[s_idx], jS=new THREE.Group(); jS.position.set(s_p.x,s_p.y,s_p.z); body.add(jS); joints[s_idx]=jS; 
+                const sS=new THREE.Mesh(new THREE.SphereGeometry(1.2), jointMat); sS.userData={index:s_idx, type:'joint'}; jS.add(sS); draggableObjects.push(sS); 
+                addMotorLabel(jS, `M${s_idx+1}`); addLegLabel(jS, leg.name);
+                const visS = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.1, 16), planeVisualMat);
+                body.add(visS); planeVisuals[s_idx] = visS; 
+                const k1_p=robotStructure.motorPositions[k1_idx], jK1=new THREE.Group(); jK1.position.set(k1_p.x,k1_p.y,k1_p.z); jS.add(jK1); joints[k1_idx]=jK1; 
+                const k1S=new THREE.Mesh(new THREE.SphereGeometry(1.0), jointMat); k1S.userData={index:k1_idx, type:'joint'}; jK1.add(k1S); draggableObjects.push(k1S); 
+                addMotorLabel(jK1, `M${k1_idx+1}`);
+                
+                const visK1 = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.1, 16), planeVisualMat);
+                jS.add(visK1); planeVisuals[k1_idx] = visK1;
+                const k2_p=robotStructure.motorPositions[k2_idx], jK2=new THREE.Group(); jK2.position.set(k2_p.x,k2_p.y,k2_p.z); jK1.add(jK2); joints[k2_idx]=jK2; 
+                const k2S=new THREE.Mesh(new THREE.SphereGeometry(0.8), jointMat); k2S.userData={index:k2_idx, type:'joint'}; jK2.add(k2S); draggableObjects.push(k2S); 
+                addMotorLabel(jK2, `M${k2_idx+1}`);
+                
+                const visK2 = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.1, 16), planeVisualMat);
+                jK1.add(visK2); planeVisuals[k2_idx] = visK2;
+                const fo_d=robotStructure.footOffsets[legIdx], f_p={x:fo_d.x, y:fo_d.y, z:fo_d.z}; 
+                const fp=new THREE.Group(); fp.position.set(f_p.x,f_p.y,f_p.z); fp.userData={legIndex: legIdx}; jK2.add(fp);
+            });
+        }
+        function addMotorLabel(joint, text) { const d=document.createElement('div'); d.className='label'; d.textContent=text; const l=new CSS2DObject(d); l.position.set(0, 1.5, 0); joint.add(l); }
+        function addLegLabel(joint, text) { const d=document.createElement('div'); d.className='leg-label'; d.textContent=text; const l=new CSS2DObject(d); l.position.set(0, 3.5, 0); joint.add(l); } 
+        function initDragControls() { dragControls=new DragControls(draggableObjects, camera, labelRenderer.domElement); dragControls.addEventListener('dragstart', (e)=>{ orbitControls.enabled=false; e.object.material.emissive.set(0xaaaa00); }); dragControls.addEventListener('drag', (e)=>{ updateStructureFromDrag(e.object); updateJointPositionsAndCreateLimbs(); }); dragControls.addEventListener('dragend', (e)=>{ orbitControls.enabled=true; e.object.material.emissive.set(0x000000); updateStructureFromDrag(e.object); updateStructureUI(); updateJointPositionsAndCreateLimbs(); }); }
+        
+        function updateStructureFromDrag(draggedObject) { 
+            const idx=draggedObject.userData.index; 
+            const jG=joints[idx]; 
+            if(!jG||!jG.parent) return; 
+            const pG=jG.parent, nWP=draggedObject.getWorldPosition(tempVector.clone()), nLP=pG.worldToLocal(nWP); 
+            robotStructure.motorPositions[idx].x=parseFloat(nLP.x.toFixed(2)); 
+            robotStructure.motorPositions[idx].y=parseFloat(nLP.y.toFixed(2)); 
+            robotStructure.motorPositions[idx].z=parseFloat(nLP.z.toFixed(2)); 
+            jG.position.copy(nLP); 
+        }
+        function updateStructureUI() { 
+            robotStructure.motorPositions.forEach((p, i)=>{ const x=document.getElementById(`motor-pos-${i}-x`), y=document.getElementById(`motor-pos-${i}-y`), z=document.getElementById(`motor-pos-${i}-z`); if(x) x.value=p.x; if(y) y.value=p.y; if(z) z.value=p.z; }); 
+            robotStructure.motorPlanes.forEach((pl, i)=>{ const px=document.getElementById(`plane-pos-${i}-x`), py=document.getElementById(`plane-pos-${i}-y`), pz=document.getElementById(`plane-pos-${i}-z`); if(px) px.value=pl.x; if(py) py.value=pl.y; if(pz) pz.value=pl.z; }); 
+            robotStructure.footOffsets.forEach((fo, i)=>{ const id=fo.id, fx=document.getElementById(`foot-offset-${id}-x`), fy=document.getElementById(`foot-offset-${id}-y`), fz=document.getElementById(`foot-offset-${id}-z`); if(fx) fx.value=fo.x; if(fy) fy.value=fo.y; if(fz) fz.value=fo.z; }); 
+        }
+        
+        function createLimbMesh(start, end, material) { 
+            const d = tempVector.clone().subVectors(end, start); 
+            const l = d.length(); 
+            if(l < 0.01) return null; 
+            const g = new THREE.CylinderGeometry(0.5, 0.5, l, 8); 
+            g.translate(0, l / 2, 0); 
+            
+            const m = new THREE.Mesh(g, material); 
+            m.castShadow = true; 
+            
+            const q = new THREE.Quaternion();
+            const a = new THREE.Vector3(0, 1, 0); 
+            q.setFromUnitVectors(a, d.clone().normalize()); 
+            m.quaternion.copy(q); 
+            m.position.copy(start); 
+            
+            return m; 
+        }
+        function createMotorControls() {
+            const container=document.getElementById('motor-controls'); container.innerHTML='';
+            itemSelectDropdown.innerHTML='<option value="-1">-- 선택 --</option>'; 
+            motorInputs.length=0; motorValueDisplays.length=0; motorControlDivs.length=0;
+            const ic="w-full p-1 mt-1 bg-gray-900 border border-gray-600 rounded-md text-white text-center text-[11px]";
+            for (let i=0; i<12; i++){
+                const d=document.createElement('div'); d.className="motor-control p-1 bg-gray-700 rounded flex flex-col items-center"; d.dataset.index=i;
+                const l=document.createElement('label'); l.className="block text-[11px] font-medium pointer-events-none"; l.innerText=`M${i+1}`;
+                
+                const offset = UIWLstF[i] - CoreWLstF[i];
+                const vS=document.createElement('span'); vS.id=`motor-value-${i}`; vS.className="text-[10px] text-gray-300 pointer-events-none"; vS.innerText=`${Math.round(WorkLst[i] + offset)}°`;
+                
+                const inp=document.createElement('input'); inp.type="number"; inp.id=`motor-input-${i}`; inp.placeholder="변화"; inp.className=ic; inp.dataset.index=i;
+                d.appendChild(l); d.appendChild(vS); d.appendChild(inp); container.appendChild(d);
+                motorInputs.push(inp); motorValueDisplays.push(vS); motorControlDivs.push(d);
+                
+                const opt=document.createElement('option'); opt.value=`motor-${i}`; opt.textContent=`M${i+1} 위치`; itemSelectDropdown.appendChild(opt);
+                const planeOpt=document.createElement('option'); planeOpt.value=`plane-${i}`; planeOpt.textContent=`M${i+1} 수평면`; itemSelectDropdown.appendChild(planeOpt);
+            }
+            robotStructure.footOffsets.forEach((fo, i) => {
+                const opt=document.createElement('option');
+                opt.value=`foot-${i}`;
+                opt.textContent=`End ${i+1} (${fo.id})`;
+                itemSelectDropdown.appendChild(opt);
+            });
+            itemSelectDropdown.addEventListener('change', handleItemSelectChange);
+        }
+        function handleItemSelectChange(event) {
+            const value = event.target.value;
+            if (selectedIndex !== null) {
+                if (selectedType === 'motor' && motorControlDivs[selectedIndex]) { motorControlDivs[selectedIndex].classList.remove('selected'); } 
+                else if (selectedType === 'plane' && motorControlDivs[selectedIndex]) { motorControlDivs[selectedIndex].classList.remove('selected'); }
+                else if (selectedType === 'foot') {
+                     const footData = robotStructure.footOffsets[selectedIndex];
+                     const wrapperId = `foot-offset-${footData.id}-wrapper`;
+                     const wrapper = structureControlWrappers[wrapperId];
+                     if (wrapper) wrapper.classList.remove('selected');
+                }
+            }
+            if (value === "-1") { selectedIndex = null; selectedType = null; positionButtons.forEach(b => b.disabled = true); } 
+            else {
+                const [type, indexStr] = value.split('-'); selectedIndex = parseInt(indexStr, 10); selectedType = type; positionButtons.forEach(b => b.disabled = false);
+                if (selectedType === 'motor' && motorControlDivs[selectedIndex]) { motorControlDivs[selectedIndex].classList.add('selected'); } 
+                else if (selectedType === 'plane' && motorControlDivs[selectedIndex]) { motorControlDivs[selectedIndex].classList.add('selected'); }
+                else if (selectedType === 'foot') {
+                     const footData = robotStructure.footOffsets[selectedIndex];
+                     const wrapperId = `foot-offset-${footData.id}-wrapper`;
+                     const wrapper = structureControlWrappers[wrapperId];
+                     if (wrapper) wrapper.classList.add('selected');
+                }
+            }
+        }
+        function initPositionControls() {
+            const c=document.getElementById('position-controls');
+            c.querySelectorAll('.pos-btn').forEach(b=>{
+                positionButtons.push(b);
+                b.addEventListener('click', ()=>{
+                    if(selectedIndex === null || isAnimating) return;
+                    const axis=b.dataset.axis, amount=parseFloat(b.dataset.amount);
+                    
+                    if (selectedType === 'motor') {
+                        const jG=joints[selectedIndex];
+                        if(jG && axis){ jG.position[axis]+=amount; robotStructure.motorPositions[selectedIndex][axis]=parseFloat(jG.position[axis].toFixed(2)); }
+                    } 
+                    else if (selectedType === 'plane') {
+                        if(axis) {
+                            const degAmount = amount * 10; 
+                            robotStructure.motorPlanes[selectedIndex][axis] = parseFloat((robotStructure.motorPlanes[selectedIndex][axis] + degAmount).toFixed(2));
+                            updateVisualPlanes(); 
+                            applyCurrentAngles(); 
+                        }
+                    }
+                    else if (selectedType === 'foot') {
+                        const footData = robotStructure.footOffsets[selectedIndex];
+                        if (footData && axis) {
+                            footData[axis] = parseFloat((footData[axis] + amount).toFixed(2));
+                            const knee2Joint = joints[footData.motorIndex];
+                            if (knee2Joint) {
+                                const footPlaceholder = knee2Joint.children.find(c => c.userData && c.userData.legIndex === selectedIndex && !(c instanceof THREE.Mesh) && !(c instanceof CSS2DObject));
+                                if (footPlaceholder) footPlaceholder.position[axis] += amount;
+                            }
+                        }
+                    }
+                    updateStructureUI(); 
+                    if(selectedType !== 'plane') updateJointPositionsAndCreateLimbs();
+                });
+            });
+        }
+        function createStructureControls() {
+            const container = document.getElementById('structure-controls'); container.innerHTML = '';
+            for (const key in structureControlWrappers) { delete structureControlWrappers[key]; }
+            const ic="structure-input p-1 bg-gray-900 border border-gray-600 rounded-md text-white text-center text-xs", lc="structure-label text-xs font-medium", wc="structure-wrapper flex items-center justify-between space-x-1";
+            
+            robotStructure.motorPositions.forEach((pos, i) => {
+                const wrapper=document.createElement('div'); wrapper.className = wc; const l=document.createElement('label'); l.className = lc + " font-mono"; l.innerText = `Pos M${i+1}`; wrapper.appendChild(l);
+                const id=`motor-pos-${i}`, ix=document.createElement('input'); ix.type="number"; ix.step=0.1; ix.id=`${id}-x`; ix.value=pos.x; ix.className=ic; const iy=document.createElement('input'); iy.type="number"; iy.step=0.1; iy.id=`${id}-y`; iy.value=pos.y; iy.className=ic; const iz=document.createElement('input'); iz.type="number"; iz.step=0.1; iz.id=`${id}-z`; iz.value=pos.z; iz.className=ic;
+                wrapper.appendChild(ix); wrapper.appendChild(iy); wrapper.appendChild(iz); container.appendChild(wrapper);
+            });
+            const planeTitle = document.createElement('div'); planeTitle.className = "text-sm font-semibold mt-3 pt-2 border-t border-gray-700 text-center"; planeTitle.textContent = "모터 수평면(Plane) 각도"; container.appendChild(planeTitle);
+            robotStructure.motorPlanes.forEach((pl, i) => {
+                const wrapper=document.createElement('div'); wrapper.className = wc; const l=document.createElement('label'); l.className = lc + " font-mono text-yellow-400"; l.innerText = `Pln M${i+1}`; wrapper.appendChild(l);
+                const id=`plane-pos-${i}`, ix=document.createElement('input'); ix.type="number"; ix.step=1; ix.id=`${id}-x`; ix.value=pl.x; ix.className=ic; const iy=document.createElement('input'); iy.type="number"; iy.step=1; iy.id=`${id}-y`; iy.value=pl.y; iy.className=ic; const iz=document.createElement('input'); iz.type="number"; iz.step=1; iz.id=`${id}-z`; iz.value=pl.z; iz.className=ic;
+                wrapper.appendChild(ix); wrapper.appendChild(iy); wrapper.appendChild(iz); container.appendChild(wrapper);
+            });
+            const footTitle = document.createElement('div'); footTitle.className = "text-sm font-semibold mt-3 pt-2 border-t border-gray-700 text-center"; footTitle.textContent = "발끝 오프셋 (End)"; container.appendChild(footTitle);
+            robotStructure.footOffsets.forEach((fo, i) => {
+                const wrapper = document.createElement('div'); wrapper.className = wc + " mt-1"; const wrapperId = `foot-offset-${fo.id}-wrapper`; wrapper.id = wrapperId; structureControlWrappers[wrapperId] = wrapper;
+                const l = document.createElement('label'); l.className = lc; l.innerText = `End ${i+1} (${fo.id})`; wrapper.appendChild(l);
+                const idP = `foot-offset-${fo.id}`, ix=document.createElement('input'); ix.type="number"; ix.step=0.1; ix.id=`${idP}-x`; ix.value=fo.x; ix.className=ic; const iy=document.createElement('input'); iy.type="number"; iy.step=0.1; iy.id=`${idP}-y`; iy.value=fo.y; iy.className=ic; const iz=document.createElement('input'); iz.type="number"; iz.step=0.1; iz.id=`${idP}-z`; iz.value=fo.z; iz.className=ic;
+                wrapper.appendChild(ix); wrapper.appendChild(iy); wrapper.appendChild(iz); container.appendChild(wrapper);
+            });
+        }
+        function applyStructure() { 
+            if(isAnimating) return; 
+            try{ 
+                for(let i=0; i<12; i++){ 
+                    robotStructure.motorPositions[i].x=parseFloat(document.getElementById(`motor-pos-${i}-x`).value)||0; 
+                    robotStructure.motorPositions[i].y=parseFloat(document.getElementById(`motor-pos-${i}-y`).value)||0; 
+                    robotStructure.motorPositions[i].z=parseFloat(document.getElementById(`motor-pos-${i}-z`).value)||0; 
+                    robotStructure.motorPlanes[i].x=parseFloat(document.getElementById(`plane-pos-${i}-x`).value)||0; 
+                    robotStructure.motorPlanes[i].y=parseFloat(document.getElementById(`plane-pos-${i}-y`).value)||0; 
+                    robotStructure.motorPlanes[i].z=parseFloat(document.getElementById(`plane-pos-${i}-z`).value)||0; 
+                } 
+                robotStructure.footOffsets.forEach(fo=>{ const id=fo.id; fo.x=parseFloat(document.getElementById(`foot-offset-${id}-x`).value)||0; fo.y=parseFloat(document.getElementById(`foot-offset-${id}-y`).value)||0; fo.z=parseFloat(document.getElementById(`foot-offset-${id}-z`).value)||0; }); 
+                
+                updateJointPositionsAndCreateLimbs(); 
+                updateVisualPlanes(); 
+                applyCurrentAngles(); 
+                console.log("Robot structure updated."); 
+            } catch (e){ console.error(e); }
+        }
+        
+        function updateJointPositionsAndCreateLimbs() { 
+            if(!body) return;
+            const lmi = [ [2, 1, 0], [5, 4, 3], [8, 7, 6], [11, 10, 9] ]; 
+            lmi.forEach(([s_idx, k1_idx, k2_idx], legIdx) => { 
+                const jS = joints[s_idx], jK1 = joints[k1_idx], jK2 = joints[k2_idx]; 
+                if (!jS || !jK1 || !jK2) return; 
+                const s_p = robotStructure.motorPositions[s_idx], k1_p = robotStructure.motorPositions[k1_idx], k2_p = robotStructure.motorPositions[k2_idx]; 
+                const fo_d = robotStructure.footOffsets[legIdx], f_p = {x: fo_d.x, y: fo_d.y, z: fo_d.z}; 
+                jS.position.set(s_p.x, s_p.y, s_p.z); 
+                jK1.position.set(k1_p.x, k1_p.y, k1_p.z); 
+                jK2.position.set(k2_p.x, k2_p.y, k2_p.z); 
+                const fp = jK2.children.find(c => c.userData && c.userData.legIndex === legIdx && !(c instanceof THREE.Mesh) && !(c instanceof CSS2DObject)); 
+                if(fp) fp.position.set(f_p.x, f_p.y, f_p.z); 
+            }); 
+            body.updateMatrixWorld(true);
+            if (useGravity) {
+                // 기존 방식은 '발끝 4개 중 가장 낮은 점'만 기준으로 몸통을 보정했습니다.
+                // 그러면 앉기/엎드리기처럼 몸통이 발끝보다 아래로 내려가는 동작에서
+                // 몸통이 기준면 아래로 파고드는 문제가 생길 수 있습니다.
+                //
+                // 수정 방식:
+                // 1) 발끝 4개의 최저점
+                // 2) 몸통 박스의 최저점
+                // 3) 주요 관절점의 최저점
+                // 위 값 중 가장 낮은 지점을 기준면 위로 올립니다.
+
+                let minRobotY = Infinity;
+
+                // 1. 발끝 4개 최저점
+                lmi.forEach(([s_idx, k1_idx, k2_idx], legIdx) => {
+                    const jK2 = joints[k2_idx];
+                    const fp = jK2.children.find(c => c.userData && c.userData.legIndex === legIdx && !(c instanceof THREE.Mesh) && !(c instanceof CSS2DObject));
+                    if (fp) {
+                        const fW = fp.getWorldPosition(new THREE.Vector3());
+                        minRobotY = Math.min(minRobotY, fW.y);
+                    }
+                });
+
+                // 2. 몸통 자체의 최저점
+                if (body.geometry) {
+                    if (!body.geometry.boundingBox) body.geometry.computeBoundingBox();
+
+                    const bodyBox = body.geometry.boundingBox.clone();
+                    bodyBox.applyMatrix4(body.matrixWorld);
+
+                    minRobotY = Math.min(minRobotY, bodyBox.min.y);
+                }
+
+                // 3. 관절점 최저점
+                joints.forEach(joint => {
+                    if (joint) {
+                        const jW = joint.getWorldPosition(new THREE.Vector3());
+                        minRobotY = Math.min(minRobotY, jW.y);
+                    }
+                });
+
+                // 기준면보다 살짝 위에 두기 위한 여유값
+                const targetY = 0.8;
+
+                if (minRobotY !== Infinity) {
+                    body.position.y += (targetY - minRobotY);
+                    body.updateMatrixWorld(true);
+                }
+            }
+            while(limbsGroup.children.length > 0){ 
+                const child = limbsGroup.children[0];
+                if(child.geometry && child.geometry !== footGeo) child.geometry.dispose();
+                limbsGroup.remove(child); 
+            } 
+            
+            lmi.forEach(([s_idx, k1_idx, k2_idx], legIdx) => { 
+                const jS = joints[s_idx], jK1 = joints[k1_idx], jK2 = joints[k2_idx]; 
+                if (!jS || !jK1 || !jK2) return; 
+                const fp = jK2.children.find(c => c.userData && c.userData.legIndex === legIdx && !(c instanceof THREE.Mesh) && !(c instanceof CSS2DObject)); 
+                const sW = jS.getWorldPosition(new THREE.Vector3()), 
+                      k1W = jK1.getWorldPosition(new THREE.Vector3()), 
+                      k2W = jK2.getWorldPosition(new THREE.Vector3()), 
+                      fW = fp ? fp.getWorldPosition(new THREE.Vector3()) : k2W; 
+                
+                const bW = body.getWorldPosition(new THREE.Vector3());
+                const sS = bW.clone().add(jS.position); 
+                const lBS = createLimbMesh(sS, sW, limbMat); if(lBS) limbsGroup.add(lBS); 
+                const lSK1 = createLimbMesh(sW, k1W, limbMat); if(lSK1) limbsGroup.add(lSK1); 
+                const lK1K2 = createLimbMesh(k1W, k2W, limbMat); if(lK1K2) limbsGroup.add(lK1K2); 
+                const lK2F = createLimbMesh(k2W, fW, limbMat); if(lK2F) limbsGroup.add(lK2F); 
+                const fmsh = new THREE.Mesh(footGeo, footMat); fmsh.position.copy(fW); limbsGroup.add(fmsh); 
+            }); 
+        }
+        function updateVisualPlanes() {
+            for(let i=0; i<12; i++) {
+                if(!planeVisuals[i]) continue;
+                
+                const pos = robotStructure.motorPositions[i];
+                planeVisuals[i].position.set(pos.x, pos.y, pos.z);
+                const pl = robotStructure.motorPlanes[i];
+                const qPlane = new THREE.Quaternion().setFromEuler(new THREE.Euler(pl.x * DEG_TO_RAD, pl.y * DEG_TO_RAD, pl.z * DEG_TO_RAD, 'XYZ'));
+                
+                const eBase = new THREE.Euler(0,0,0);
+                if ([0,1,3,4,6,7,9,10].includes(i)) {
+                    eBase.z = Math.PI/2;
+                } else if ([2,5,8,11].includes(i)) {
+                    eBase.x = -Math.PI / 2;
+                }
+                const qBaseVis = new THREE.Quaternion().setFromEuler(eBase);
+                
+                planeVisuals[i].quaternion.copy(qPlane).multiply(qBaseVis);
+            }
+        }
+        function applyCurrentAngles() { 
+            for (let i=0; i<12; i++){ 
+                const j=joints[i]; if(!j) continue; 
+                
+                const a = jointAxes[i]; 
+                
+                const baseRot = CoreWLstF[i] * DEG_TO_RAD;
+                const axisVec = new THREE.Vector3(a==='x'?1:0, a==='y'?1:0, a==='z'?1:0);
+                const qBase = new THREE.Quaternion().setFromAxisAngle(axisVec, baseRot);
+                
+                const pl = robotStructure.motorPlanes[i];
+                const qPlane = new THREE.Quaternion().setFromEuler(new THREE.Euler(pl.x * DEG_TO_RAD, pl.y * DEG_TO_RAD, pl.z * DEG_TO_RAD, 'XYZ'));
+                
+                const customAxis = axisVec.clone().applyQuaternion(qPlane);
+                
+                const cur = getVisibleWorkValue(i, WorkLst[i]);
+                const deltaRot = (cur - CoreWLstF[i]) * DEG_TO_RAD * motorDir[i];
+                
+                const qDelta = new THREE.Quaternion().setFromAxisAngle(customAxis, deltaRot);
+                
+                const finalQuat = qDelta.clone().multiply(qBase);
+                j.quaternion.copy(finalQuat);
+            }
+        }
+        
+        function exportStructure() { const d={ structure: robotStructure, axes: jointAxes, WLstF: UIWLstF }; const j=JSON.stringify(d, null, 2); document.getElementById('export-data').value = j; }
+        
+        async function applyChanges() { 
+            if(isAnimating) return; 
+            let c=new Array(12).fill(0), h=false; 
+            for(let i=0; i<12; i++){ 
+                const chg=parseFloat(motorInputs[i].value)||0; 
+                if(chg!==0){ 
+                    // 마이크로비트 실제 코드와 동일하게 변화값은 그대로 누적합니다.
+                    // 0~180 제한은 화면에 표시할 때만 적용하고, WorkLst 자체는 제한하지 않습니다.
+                    c[i] = parseFloat(chg.toFixed(1));
+                    h = true;
+                } 
+                motorInputs[i].value=""; 
+            } 
+            if(h) {
+                const codeStr = `Work(${c.join(', ')}, 10)`;
+                document.getElementById('output-work-code').value = codeStr;
+                
+                await Work(c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11], 10); 
+            }
+        }
+        function updateMotorDisplays() { 
+            for(let i=0; i<12; i++) { 
+                const offset = UIWLstF[i] - CoreWLstF[i];
+                const rawDisplayValue = Math.round(WorkLst[i] + offset);
+                const visibleDisplayValue = Math.round(clampServoDisplayValue(WorkLst[i] + offset));
+                if (motorValueDisplays[i]) {
+                    if (rawDisplayValue !== visibleDisplayValue) {
+                        motorValueDisplays[i].innerText = `현재: ${visibleDisplayValue}° / 내부: ${rawDisplayValue}°`;
+                    } else {
+                        motorValueDisplays[i].innerText = `현재: ${visibleDisplayValue}°`;
+                    }
+                } 
+            } 
+        }
+        function resetPosition(animate=true) { 
+            if(isAnimating) return; isAnimating=true; statusLight.classList.remove('bg-gray-500','bg-green-500'); statusLight.classList.add('bg-yellow-500'); 
+            const tl=gsap.timeline({ onComplete: ()=>{ isAnimating=false; statusLight.classList.remove('bg-yellow-500'); statusLight.classList.add('bg-gray-500'); updateMotorDisplays(); } }); 
+            
+            const d = 0.5;
+            const proxy = {};
+            for(let i=0; i<12; i++) proxy[`m${i}`] = WorkLst[i];
+            for (let i=0; i<12; i++){ 
+                if (animate) {
+                    tl.to(proxy, {
+                        [`m${i}`]: CoreWLstF[i],
+                        duration: d, ease: "power2.out",
+                        onUpdate: () => {
+                            const j=joints[i]; if(!j) return;
+                            
+                            const a=jointAxes[i];
+                            const baseRot = CoreWLstF[i]*DEG_TO_RAD;
+                            const deltaRot = (proxy[`m${i}`] - CoreWLstF[i]) * DEG_TO_RAD * motorDir[i];
+                            
+                            const axisVec = new THREE.Vector3(a==='x'?1:0, a==='y'?1:0, a==='z'?1:0);
+                            const qBase = new THREE.Quaternion().setFromAxisAngle(axisVec, baseRot);
+                            
+                            const pl = robotStructure.motorPlanes[i];
+                            const qPlane = new THREE.Quaternion().setFromEuler(new THREE.Euler(pl.x*DEG_TO_RAD, pl.y*DEG_TO_RAD, pl.z*DEG_TO_RAD, 'XYZ'));
+                            
+                            const customAxis = axisVec.clone().applyQuaternion(qPlane);
+                            const qDelta = new THREE.Quaternion().setFromAxisAngle(customAxis, deltaRot);
+                            
+                            j.quaternion.copy(qDelta.clone().multiply(qBase));
+                        }
+                    }, 0);
+                } else {
+                    const j=joints[i]; if(!j) continue;
+                    const a=jointAxes[i];
+                    const axisVec = new THREE.Vector3(a==='x'?1:0, a==='y'?1:0, a==='z'?1:0);
+                    j.quaternion.setFromAxisAngle(axisVec, CoreWLstF[i]*DEG_TO_RAD);
+                }
+            } 
+            WorkLst=[...CoreWLstF]; 
+            if (!animate){ isAnimating=false; statusLight.classList.remove('bg-yellow-500'); statusLight.classList.add('bg-gray-500'); updateMotorDisplays(); }
+        }
+
+        function initResizableControlPanel() {
+            const panel = document.getElementById('control-panel');
+            const resizer = document.getElementById('control-panel-resizer');
+            if (!panel || !resizer) return;
+
+            const storageKey = 'robotSimulatorControlPanelWidthV2';
+            const minWidth = 320;
+            const maxWidthRatio = 0.55;
+            const defaultWidthRatio = 1 / 3;
+
+            function isDesktopLayout() {
+                return window.matchMedia('(min-width: 768px)').matches;
+            }
+
+            function applyPanelWidth(width) {
+                if (!isDesktopLayout()) {
+                    panel.style.width = '';
+                    panel.style.minWidth = '';
+                    panel.style.maxWidth = '';
+                    return;
+                }
+                const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * maxWidthRatio));
+                const nextWidth = Math.min(maxWidth, Math.max(minWidth, Math.round(width)));
+                panel.style.width = `${nextWidth}px`;
+                panel.style.minWidth = `${nextWidth}px`;
+                panel.style.maxWidth = `${nextWidth}px`;
+                onWindowResize();
+            }
+
+            const savedWidth = parseInt(localStorage.getItem(storageKey), 10);
+            const defaultWidth = Math.floor(window.innerWidth * defaultWidthRatio);
+            applyPanelWidth(Number.isFinite(savedWidth) ? savedWidth : defaultWidth);
+
+            let startX = 0;
+            let startWidth = 0;
+            let isResizing = false;
+
+            function handlePointerMove(event) {
+                if (!isResizing) return;
+                const dx = event.clientX - startX;
+                applyPanelWidth(startWidth + dx);
+            }
+
+            function handlePointerUp() {
+                if (!isResizing) return;
+                isResizing = false;
+                document.body.classList.remove('resizing-panel');
+                window.removeEventListener('pointermove', handlePointerMove);
+                window.removeEventListener('pointerup', handlePointerUp);
+                const currentWidth = Math.round(panel.getBoundingClientRect().width);
+                if (isDesktopLayout()) localStorage.setItem(storageKey, String(currentWidth));
+            }
+
+            resizer.addEventListener('pointerdown', (event) => {
+                if (!isDesktopLayout()) return;
+                event.preventDefault();
+                isResizing = true;
+                startX = event.clientX;
+                startWidth = panel.getBoundingClientRect().width;
+                document.body.classList.add('resizing-panel');
+                window.addEventListener('pointermove', handlePointerMove);
+                window.addEventListener('pointerup', handlePointerUp);
+            });
+
+            window.addEventListener('resize', () => {
+                if (!isDesktopLayout()) {
+                    panel.style.width = '';
+                    panel.style.minWidth = '';
+                    panel.style.maxWidth = '';
+                    onWindowResize();
+                    return;
+                }
+                const currentWidth = panel.getBoundingClientRect().width || savedWidth || Math.floor(window.innerWidth * defaultWidthRatio);
+                applyPanelWidth(currentWidth);
+            });
+        }
+
+        function onWindowResize() { const c=document.getElementById('canvas-container'), l=document.getElementById('label-container'); if (!c||!l) return; camera.aspect=c.clientWidth/c.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(c.clientWidth, c.clientHeight); labelRenderer.setSize(c.clientWidth, c.clientHeight); }
+        
+        function animate() { 
+            requestAnimationFrame(animate); 
+            if(orbitControls) orbitControls.update(); 
+            if(robot) robot.updateMatrixWorld(true);
+            
+            if(joints.length===12 && joints.every(j=>j)) {
+                updateVisualPlanes(); 
+                if(selectedType !== 'plane') {
+                    updateJointPositionsAndCreateLimbs(); 
+                }
+            }
+            
+            if(renderer&&scene&&camera) renderer.render(scene, camera); 
+            if(labelRenderer&&scene&&camera) labelRenderer.render(scene, camera); 
+        }
+        
+        function clampServoDisplayValue(displayValue) {
+            return Math.max(0, Math.min(180, displayValue));
+        }
+
+        function getVisibleWorkValue(index, workValue) {
+            // WorkLst는 내부 누적값이므로 180을 넘거나 0보다 작아도 그대로 유지합니다.
+            // 다만 실제 서보처럼 화면에 반영할 때만 0~180 범위로 제한합니다.
+            // 예: 내부값이 190이면 화면은 180 위치에 멈추지만,
+            // 다음에 -30을 만나면 내부값은 160이 되어 자연스럽게 돌아옵니다.
+            const offset = UIWLstF[index] - CoreWLstF[index];
+            const displayValue = workValue + offset;
+            const clampedDisplayValue = clampServoDisplayValue(displayValue);
+            return clampedDisplayValue - offset;
+        }
+
+        function setJointAngleByWorkValue(index, workValue) {
+            const j = joints[index];
+            if (!j) return;
+
+            const visibleWorkValue = getVisibleWorkValue(index, workValue);
+            const a = jointAxes[index];
+            const baseRot = CoreWLstF[index] * DEG_TO_RAD;
+            const deltaRot = (visibleWorkValue - CoreWLstF[index]) * DEG_TO_RAD * motorDir[index];
+
+            const axisVec = new THREE.Vector3(a === 'x' ? 1 : 0, a === 'y' ? 1 : 0, a === 'z' ? 1 : 0);
+            const qBase = new THREE.Quaternion().setFromAxisAngle(axisVec, baseRot);
+
+            const pl = robotStructure.motorPlanes[index];
+            const qPlane = new THREE.Quaternion().setFromEuler(new THREE.Euler(pl.x * DEG_TO_RAD, pl.y * DEG_TO_RAD, pl.z * DEG_TO_RAD, 'XYZ'));
+            const customAxis = axisVec.clone().applyQuaternion(qPlane);
+            const qDelta = new THREE.Quaternion().setFromAxisAngle(customAxis, deltaRot);
+
+            j.quaternion.copy(qDelta.clone().multiply(qBase));
+        }
+
+        function getRawWorkTarget(currentWorkValue, changeValue) {
+            // 목표값도 제한하지 않습니다. 제한은 setJointAngleByWorkValue()에서 화면 표시 시에만 적용합니다.
+            return currentWorkValue + (Number(changeValue) || 0);
+        }
+
+        function waitAnimationFrame() {
+            return new Promise(resolve => requestAnimationFrame(resolve));
+        }
+
+        async function runWorkNow(s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12, speed) {
+            // 여러 줄 입력창, 매크로 버튼, 직접 Work 호출이 모두 사용하는 실제 실행기입니다.
+            // GSAP 타임라인을 여러 번 이어 붙이면 같은 속성 tween이 overwrite되거나 완료 시점이 겹쳐
+            // for문 반복 동작이 1회처럼 보일 수 있어, requestAnimationFrame 기반 수동 보간으로 바꿨습니다.
+            while (isAnimating) {
+                await new Promise(r => setTimeout(r, 20));
+            }
+
+            isAnimating = true;
+            statusLight.classList.remove('bg-gray-500','bg-yellow-500');
+            statusLight.classList.add('bg-green-500');
+
+            const changes = [s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12].map(v => Number(v) || 0);
+            const startWorkValues = [...WorkLst];
+            const targetWorkValues = startWorkValues.map((current, index) => getRawWorkTarget(current, changes[index]));
+
+            // 기존 speed 체계는 유지하되, 너무 짧아 반복이 1번처럼 보이는 것을 줄이기 위해 최소 표시 시간을 둡니다.
+            const baseDurationMs = Math.max(180, (Number(speed) || 0) * 25);
+            const durationMs = isGifExporting ? baseDurationMs * GIF_EXPORT_MOTION_SLOWDOWN : baseDurationMs;
+            const startTime = performance.now();
+
+            while (true) {
+                const now = performance.now();
+                const progress = Math.min(1, (now - startTime) / durationMs);
+
+                for (let i = 0; i < 12; i++) {
+                    const value = startWorkValues[i] + (targetWorkValues[i] - startWorkValues[i]) * progress;
+                    setJointAngleByWorkValue(i, value);
+                }
+
+                updateJointPositionsAndCreateLimbs();
+
+                if (progress >= 1) break;
+                await waitAnimationFrame();
+            }
+
+            WorkLst = targetWorkValues;
+            for (let i = 0; i < 12; i++) setJointAngleByWorkValue(i, WorkLst[i]);
+            updateJointPositionsAndCreateLimbs();
+            updateMotorDisplays();
+
+            isAnimating = false;
+            statusLight.classList.remove('bg-green-500');
+            statusLight.classList.add('bg-gray-500');
+        }
+
+        async function Work(s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12, speed) {
+            return runWorkNow(s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12, speed);
+        }
+
+        function setWorkListToBasicPose() {
+            // 마이크로비트 코드의 WorkLst = [149, 70, ...] 초기화와 같은 역할입니다.
+            // 이 시뮬레이터는 내부 기준값(CoreWLstF)과 화면 표시 기준값(UIWLstF)을 분리해서 쓰므로
+            // 실제 내부 누적값은 CoreWLstF로 되돌립니다.
+            WorkLst = [...CoreWLstF];
+            for (let i = 0; i < 12; i++) setJointAngleByWorkValue(i, WorkLst[i]);
+            updateJointPositionsAndCreateLimbs();
+            updateMotorDisplays();
+        }
+
+        async function pause(ms) { return new Promise(r=>setTimeout(r, ms)); }
+        
+        async function macroSitStand() {
+            await Work(20, 40, 0, -20, -40, 0, -20, -40, 0, 20, 40, 0, 10);
+            await Work(-20, -40, 0, 20, 40, 0, 20, 40, 0, -20, -40, 0, 10);
+        }
+        async function macroSitSpread() {
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, 0, 0, 0, -45, 9);
+            await Work(-108, -36, 0, 108, 36, 0, 108, 36, 0, -108, -36, 0, 12);
+            await pause(3000);
+            await Work(108, 36, 0, -108, -36, 0, -108, -36, 0, 108, 36, 0, 12);
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 0, 0, 0, 45, 9);
+        }
+        async function macroStandSpread() {
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, 0, 0, 0, -45, 9);
+            await Work(-108, -72, 0, 108, 72, 0, 108, 72, 0, -108, -72, 0, 12);
+            await pause(3000);
+            await Work(108, 72, 0, -108, -72, 0, -108, -72, 0, 108, 72, 0, 12);
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 0, 0, 0, 45, 9);
+        }
+        async function macroForward() {
+            await Work(0, 0, 0, -20, -80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, 0, 0, 0, 0, 9);
+            await Work(0, 0, 0, 20, 80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 45, 0, 0, 0, 0, 0, 0, 0, 0, -45, 9);
+            await Work(0, 0, 0, 0, 0, 0, -20, -80, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, -45, 0, 0, 0, 9);
+            await Work(0, 0, 0, 0, 0, 0, 20, 80, 0, 0, 0, 0, 4);
+            await Work(20, 80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9);
+            await Work(-20, -80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 45, 0, 0, 0, 9);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 20, 80, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 9);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, -20, -80, 0, 4);
+        }
+        async function macroBackward() {
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 20, 80, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 9);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, -20, -80, 0, 4);
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, -45, 0, 0, 0, 9);
+            await Work(20, 80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9);
+            await Work(-20, -80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, -20, -80, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 45, 0, 0, 0, 9);
+            await Work(0, 0, 0, 0, 0, 0, 20, 80, 0, 0, 0, 0, 4);
+            await Work(0, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 45, 9);
+            await Work(0, 0, 0, -20, -80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 0, 0, 0, 0, 9);
+            await Work(0, 0, 0, 20, 80, 0, 0, 0, 0, 0, 0, 0, 4);
+        }
+        async function macroLeft() {
+            await Work(0, 0, 0, -20, -80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 90, 0, 0, 0, 0, 0, 0, 9);
+            await Work(0, 0, 0, 20, 80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(20, 80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, -45, 0, 0, -45, 9);
+            await Work(-20, -80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 45, 0, 0, 0, 9);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 20, 80, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 9);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, -20, -80, 0, 4);
+        }
+        async function macroRight() {
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 20, 80, 0, 4);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 9);
+            await Work(0, 0, 0, 0, 0, 0, 0, 0, 0, -20, -80, 0, 4);
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, -45, 0, 0, 0, 9);
+            await Work(20, 80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9);
+            await Work(-20, -80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, -20, -80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 45, 0, 0, -45, 0, 0, 45, 0, 0, 45, 4);
+            await Work(0, 0, 0, 20, 80, 0, 0, 0, 0, 0, 0, 0, 4);
+        }
+        async function macroWave1() {
+            await Work(20, 20, 0, 0, 0, 0, -20, -20, 0, -20, 0, 0, 10);
+            await Work(0, 0, 0, 0, -80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, 0, 0, 0, 0, 9);
+            for (let index = 0; index < 3; index++) {
+                await Work(0, 0, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 5);
+                await Work(0, 0, 0, 0, 0, -20, 0, 0, 0, 0, 0, 0, 5);
+            }
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 0, 0, 0, 0, 9);
+            await Work(0, 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(-20, -20, 0, 0, 0, 0, 20, 20, 0, 20, 0, 0, 10);
+        }
+        async function macroWave2() {
+            await Work(20, 20, 0, 0, 0, 0, -20, -20, 0, -20, 0, 0, 10);
+            await Work(0, 0, 0, 0, -80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(0, 0, 0, 0, 0, 45, 0, 0, 0, 0, 0, 0, 9);
+            for (let index = 0; index < 3; index++) {
+                await Work(0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 5);
+                await Work(0, 0, 0, -20, 0, 0, 0, 0, 0, 0, 0, 0, 5);
+            }
+            await Work(0, 0, 0, 0, 0, -45, 0, 0, 0, 0, 0, 0, 9);
+            await Work(0, 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0, 4);
+            await Work(-20, -20, 0, 0, 0, 0, 20, 20, 0, 20, 0, 0, 10);
+        }
+        function normalizeUserCode(codeStr) {
+            // 스마트 따옴표, 특수 공백, CRLF 등 복사/붙여넣기 과정에서 섞일 수 있는 문자를 정리합니다.
+            return String(codeStr || '')
+                .replace(/\r\n?/g, '\n')
+                .replace(/[\u2018\u2019]/g, "'")
+                .replace(/[\u201C\u201D]/g, '"')
+                .replace(/\u00A0/g, ' ')
+                .trim();
+        }
+
+        const GIF_EXPORT_FPS = 60;
+        const GIF_EXPORT_MAX_WIDTH = 640;
+        const GIF_EXPORT_MOTION_SLOWDOWN = 1;
+        let isGifExporting = false;
+        let gifRecorder = null;
+        let gifCaptureTimer = null;
+        let gifCapturedFrameCount = 0;
+
+        function setGifStatus(message) {
+            const status = document.getElementById('gif-status');
+            if (status) status.textContent = message;
+        }
+
+        function getGifCaptureCanvas() {
+            if (!renderer || !renderer.domElement) return null;
+
+            const sourceCanvas = renderer.domElement;
+            const scale = Math.min(1, GIF_EXPORT_MAX_WIDTH / sourceCanvas.width);
+            const captureCanvas = document.createElement('canvas');
+            captureCanvas.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+            captureCanvas.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+            const ctx = captureCanvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(sourceCanvas, 0, 0, captureCanvas.width, captureCanvas.height);
+            return captureCanvas;
+        }
+
+        let gifWorkerBlobUrl = null;
+
+        function getGifWorkerScriptUrl() {
+            // Worker는 보안 정책상 http://127.0.0.1:5500에서 https://cdnjs... 파일을 직접 실행할 수 없습니다.
+            // 그래서 같은 출처(blob:)의 작은 worker를 만든 뒤, 그 안에서 gif.worker.js를 불러오게 합니다.
+            if (gifWorkerBlobUrl) return gifWorkerBlobUrl;
+            const workerLoaderCode = "importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');";
+            const blob = new Blob([workerLoaderCode], { type: 'application/javascript' });
+            gifWorkerBlobUrl = URL.createObjectURL(blob);
+            return gifWorkerBlobUrl;
+        }
+
+        function startGifRecording() {
+            if (typeof GIF === 'undefined') {
+                throw new Error('GIF 저장 라이브러리를 불러오지 못했습니다. 인터넷 연결 또는 CDN 차단 여부를 확인해 주세요.');
+            }
+            if (!renderer || !renderer.domElement) {
+                throw new Error('시뮬레이터 캔버스가 아직 준비되지 않았습니다.');
+            }
+
+            stopGifFrameTimerOnly();
+            gifCapturedFrameCount = 0;
+            const firstCanvas = getGifCaptureCanvas();
+            if (!firstCanvas) throw new Error('GIF 캡처용 캔버스를 만들 수 없습니다.');
+
+            gifRecorder = new GIF({
+                workers: 2,
+                quality: 12,
+                width: firstCanvas.width,
+                height: firstCanvas.height,
+                workerScript: getGifWorkerScriptUrl()
+            });
+
+            const delay = Math.round(1000 / GIF_EXPORT_FPS);
+            const addCurrentFrame = () => {
+                if (!gifRecorder || !renderer || !renderer.domElement) return;
+                if (renderer && scene && camera) renderer.render(scene, camera);
+                const frameCanvas = getGifCaptureCanvas();
+                if (!frameCanvas) return;
+                gifRecorder.addFrame(frameCanvas, { copy: true, delay });
+                gifCapturedFrameCount += 1;
+                if (gifCapturedFrameCount % GIF_EXPORT_FPS === 0) {
+                    setGifStatus(`GIF 녹화 중... ${Math.round(gifCapturedFrameCount / GIF_EXPORT_FPS)}초`);
+                }
+            };
+
+            addCurrentFrame();
+            gifCaptureTimer = setInterval(addCurrentFrame, delay);
+            setGifStatus('GIF 녹화 시작');
+        }
+
+        function stopGifFrameTimerOnly() {
+            if (gifCaptureTimer) {
+                clearInterval(gifCaptureTimer);
+                gifCaptureTimer = null;
+            }
+        }
+
+        function renderGifToBlob() {
+            return new Promise((resolve, reject) => {
+                if (!gifRecorder) {
+                    reject(new Error('렌더링할 GIF 녹화 데이터가 없습니다.'));
+                    return;
+                }
+                gifRecorder.on('finished', blob => resolve(blob));
+                gifRecorder.on('abort', () => reject(new Error('GIF 생성이 중단되었습니다.')));
+                gifRecorder.render();
+            });
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function makeGifFilename() {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            return `robot_simulation_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.gif`;
+        }
+
+        async function executeCustomCodeAndSaveGif(codeStr) {
+            if (isAnimating) return;
+            const gifButton = document.getElementById('btn-export-gif');
+            const multiButton = document.getElementById('btn-exec-multi');
+            try {
+                if (gifButton) gifButton.disabled = true;
+                if (multiButton) multiButton.disabled = true;
+                isGifExporting = true;
+                startGifRecording();
+                await executeCustomCode(codeStr);
+                stopGifFrameTimerOnly();
+
+                if (gifCapturedFrameCount < 2) {
+                    throw new Error('캡처된 프레임이 너무 적습니다. 실행할 Work() 코드가 있는지 확인해 주세요.');
+                }
+
+                setGifStatus(`GIF 생성 중... ${gifCapturedFrameCount}프레임`);
+                const blob = await renderGifToBlob();
+                downloadBlob(blob, makeGifFilename());
+                setGifStatus(`GIF 저장 완료 (${gifCapturedFrameCount}프레임)`);
+            } catch (error) {
+                stopGifFrameTimerOnly();
+                console.error('GIF 저장 오류:', error);
+                setGifStatus('GIF 저장 오류');
+                alert('GIF 저장 중 오류가 발생했습니다.\n\n' + error.message);
+            } finally {
+                gifRecorder = null;
+                isGifExporting = false;
+                if (gifButton) gifButton.disabled = false;
+                if (multiButton) multiButton.disabled = false;
+            }
+        }
+
+        async function buildCommandQueueFromUserCode(codeStr) {
+            const commandQueue = [];
+            const queuedWork = (...args) => {
+                if (args.length !== 13) {
+                    throw new Error(`Work()에는 각도 변화값 12개와 speed 1개, 총 13개의 값이 필요합니다. 현재 ${args.length}개가 입력되었습니다.`);
+                }
+                const numericArgs = args.map(value => {
+                    const numberValue = Number(value);
+                    if (!Number.isFinite(numberValue)) throw new Error(`Work() 안에 숫자가 아닌 값이 있습니다: ${value}`);
+                    return numberValue;
+                });
+                commandQueue.push({ type: 'work', args: numericArgs });
+                return Promise.resolve(); // 사용자가 await Work(...)라고 써도 동작하도록 합니다.
+            };
+            const queuedPause = (ms) => {
+                const pauseMs = Number(ms) || 0;
+                commandQueue.push({ type: 'pause', args: [pauseMs] });
+                return Promise.resolve();
+            };
+            const queuedBasicPoseReset = () => {
+                commandQueue.push({ type: 'returnBase', args: [] });
+                return Promise.resolve();
+            };
+            const queuedReturnFunction = async () => {
+                queuedBasicPoseReset();
+                return queuedWork(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4);
+            };
+            const basic = { pause: queuedPause };
+
+            const cleanCode = normalizeUserCode(codeStr);
+            if (!cleanCode) return commandQueue;
+
+            const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+            const runner = new AsyncFunction(
+                'Work',
+                'pause',
+                'basic',
+                '기본자세로초기화',
+                '기본자세초기화',
+                '복귀',
+                `"use strict";\n${cleanCode}`
+            );
+
+            // 사용자가 입력한 JS를 먼저 실행합니다.
+            // 이때 Work는 실제 애니메이션 함수가 아니라 큐 등록 함수이므로,
+            // for문이 3회 돌면 Work 명령도 정확히 3회분 누적됩니다.
+            // 복귀()는 이미 준비된 함수처럼 사용할 수 있게 하여, 입력창에는 호출 코드만 넣어도 됩니다.
+            await runner(queuedWork, queuedPause, basic, queuedBasicPoseReset, queuedBasicPoseReset, queuedReturnFunction);
+            return commandQueue;
+        }
+
+        function roundCorrectionValue(value) {
+            const rounded = Math.round((Number(value) || 0) * 10) / 10;
+            return Object.is(rounded, -0) ? 0 : rounded;
+        }
+
+        function formatCorrectionValue(value, showPlus = true) {
+            const rounded = roundCorrectionValue(value);
+            if (rounded > 0 && showPlus) return `+${rounded}`;
+            return `${rounded}`;
+        }
+
+        function renderCorrectionCells(containerId, values) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+            values.forEach((value, index) => {
+                const rounded = roundCorrectionValue(value);
+                const cell = document.createElement('div');
+                const isNonZero = rounded !== 0;
+                cell.className = `px-1 py-1 rounded border text-center font-mono ${isNonZero ? 'border-red-500 bg-red-950/50 text-red-300 font-bold' : 'border-gray-700 bg-gray-900 text-gray-400'}`;
+                cell.textContent = `M${index + 1} ${formatCorrectionValue(rounded)}`;
+                container.appendChild(cell);
+            });
+        }
+
+        let latestReturnCorrection = new Array(12).fill(0);
+        let correctionPreviewTimer = null;
+        let correctionPreviewVersion = 0;
+
+        async function calculateReturnCorrectionFromCode(codeStr) {
+            const commandQueue = await buildCommandQueueFromUserCode(codeStr);
+            const totals = new Array(12).fill(0);
+            commandQueue.forEach(command => {
+                if (command.type === 'returnBase') {
+                    totals.fill(0);
+                    return;
+                }
+                if (command.type !== 'work') return;
+                for (let i = 0; i < 12; i++) {
+                    totals[i] += Number(command.args[i]) || 0;
+                }
+            });
+            const correction = totals.map(value => roundCorrectionValue(-value));
+            return { commandQueue, totals: totals.map(roundCorrectionValue), correction };
+        }
+
+        async function updateReturnCorrectionPreview() {
+            const version = ++correctionPreviewVersion;
+            const textarea = document.getElementById('input-multi-code');
+            const summary = document.getElementById('return-correction-summary');
+            const button = document.getElementById('btn-add-return-correction');
+            const codeStr = textarea ? textarea.value : '';
+
+            if (!normalizeUserCode(codeStr)) {
+                latestReturnCorrection = new Array(12).fill(0);
+                renderCorrectionCells('return-total-values', latestReturnCorrection);
+                renderCorrectionCells('return-correction-values', latestReturnCorrection);
+                if (summary) summary.textContent = '여러 줄 코드를 입력하면 12개 모터의 누적 변화값과 0으로 되돌릴 보정값을 보여줍니다.';
+                if (button) button.disabled = true;
+                return;
+            }
+
+            try {
+                const result = await calculateReturnCorrectionFromCode(codeStr);
+                if (version !== correctionPreviewVersion) return;
+
+                latestReturnCorrection = result.correction;
+                renderCorrectionCells('return-total-values', result.totals);
+                renderCorrectionCells('return-correction-values', result.correction);
+
+                const nonZeroCount = result.totals.filter(value => value !== 0).length;
+                if (summary) {
+                    if (nonZeroCount === 0) {
+                        summary.textContent = `입력된 Work ${result.commandQueue.filter(c => c.type === 'work').length}개 기준, 이미 기본 자세로 돌아옵니다.`;
+                    } else {
+                        summary.textContent = `입력된 Work ${result.commandQueue.filter(c => c.type === 'work').length}개 기준, ${nonZeroCount}개 모터에 보정이 필요합니다. 빨간색 값은 0이 아닌 값입니다.`;
+                    }
+                }
+                if (button) button.disabled = nonZeroCount === 0;
+            } catch (error) {
+                if (version !== correctionPreviewVersion) return;
+                latestReturnCorrection = new Array(12).fill(0);
+                renderCorrectionCells('return-total-values', latestReturnCorrection);
+                renderCorrectionCells('return-correction-values', latestReturnCorrection);
+                if (summary) summary.textContent = '보정값 계산 오류: ' + error.message;
+                if (button) button.disabled = true;
+            }
+        }
+
+        function scheduleReturnCorrectionPreview() {
+            clearTimeout(correctionPreviewTimer);
+            correctionPreviewTimer = setTimeout(updateReturnCorrectionPreview, 250);
+        }
+
+        async function appendReturnCorrectionWork() {
+            const textarea = document.getElementById('input-multi-code');
+            if (!textarea || isAnimating) return;
+
+            try {
+                const result = await calculateReturnCorrectionFromCode(textarea.value);
+                latestReturnCorrection = result.correction;
+                const hasCorrection = latestReturnCorrection.some(value => value !== 0);
+                if (!hasCorrection) {
+                    alert('이미 12개 모터의 누적 변화값이 모두 0입니다.');
+                    await updateReturnCorrectionPreview();
+                    return;
+                }
+
+                const correctionCode = `Work(${latestReturnCorrection.map(value => roundCorrectionValue(value)).join(', ')}, 10)`;
+                const currentCode = textarea.value.trimEnd();
+                textarea.value = currentCode ? `${currentCode}\n${correctionCode}` : correctionCode;
+                textarea.focus();
+                await updateReturnCorrectionPreview();
+            } catch (error) {
+                alert('보정 Work를 추가할 수 없습니다.\n\n' + error.message);
+            }
+        }
+
+        function makeReturnFunctionCode() {
+            return `복귀()`;
+        }
+
+        async function appendReturnFunctionCode() {
+            const textarea = document.getElementById('input-multi-code');
+            if (!textarea || isAnimating) return;
+
+            const returnCode = makeReturnFunctionCode();
+            const currentCode = textarea.value.trimEnd();
+            textarea.value = currentCode ? `${currentCode}
+
+${returnCode}` : returnCode;
+            textarea.focus();
+            await updateReturnCorrectionPreview();
+        }
+
+        async function executeCustomCode(codeStr) {
+            if (isAnimating) return;
+
+            try {
+                const commandQueue = await buildCommandQueueFromUserCode(codeStr);
+
+                console.clear();
+                console.log(`등록된 명령 수: ${commandQueue.length}`, commandQueue);
+
+                if (commandQueue.length === 0) {
+                    alert('실행할 Work() 또는 pause() 명령이 없습니다.');
+                    return;
+                }
+
+                // 큐에 쌓인 명령을 하나씩 끝까지 실행합니다.
+                // 여기서는 원래 Work()를 다시 호출하지 않고 runWorkNow()만 호출하여 중복 대기/상태 충돌을 없앴습니다.
+                for (let i = 0; i < commandQueue.length; i++) {
+                    const command = commandQueue[i];
+                    console.log(`실행 중: ${i + 1}/${commandQueue.length}`, command);
+                    if (command.type === 'returnBase') {
+                        setWorkListToBasicPose();
+                    } else if (command.type === 'work') {
+                        await runWorkNow(...command.args);
+                    } else if (command.type === 'pause') {
+                        await pause(command.args[0]);
+                    }
+                }
+            } catch (error) {
+                console.error('사용자 코드 실행 오류:', error);
+                alert('코드 실행 중 오류가 발생했습니다.\n\n' + error.message);
+            }
+        }
+
+        document.getElementById('btn-copy-code').addEventListener('click', () => {
+            const output = document.getElementById('output-work-code');
+            if(output.value) {
+                navigator.clipboard.writeText(output.value).then(() => {
+                    const btn = document.getElementById('btn-copy-code');
+                    const origText = btn.innerText;
+                    btn.innerText = "복사됨!";
+                    btn.classList.replace('bg-gray-600', 'bg-green-600');
+                    setTimeout(() => {
+                        btn.innerText = origText;
+                        btn.classList.replace('bg-green-600', 'bg-gray-600');
+                    }, 1500);
+                });
+            }
+        });
+        document.getElementById('btn-reset').addEventListener('click', () => resetPosition(true));
+        document.getElementById('btn-apply-changes').addEventListener('click', applyChanges);
+        
+        document.getElementById('btn-toggle-gravity').addEventListener('click', (e) => {
+            useGravity = !useGravity;
+            const btn = e.target;
+            btn.innerText = `🌍 가상 중력 (지면 밀착) : ${useGravity ? 'ON' : 'OFF'}`;
+            
+            if (useGravity) {
+                btn.classList.replace('bg-gray-600', 'bg-amber-600');
+                btn.classList.replace('hover:bg-gray-500', 'hover:bg-amber-700');
+            } else {
+                btn.classList.replace('bg-amber-600', 'bg-gray-600');
+                btn.classList.replace('hover:bg-amber-700', 'hover:bg-gray-500');
+                
+                if (!isAnimating) {
+                    gsap.to(body.position, { y: 12, duration: 0.5, onUpdate: updateJointPositionsAndCreateLimbs });
+                }
+            }
+            if (useGravity && !isAnimating) updateJointPositionsAndCreateLimbs();
+        });
+        document.getElementById('btn-macro-sitstand').addEventListener('click', async () => { if (!isAnimating) await macroSitStand(); });
+        document.getElementById('btn-macro-sitspread').addEventListener('click', async () => { if (!isAnimating) await macroSitSpread(); });
+        document.getElementById('btn-macro-standspread').addEventListener('click', async () => { if (!isAnimating) await macroStandSpread(); });
+        
+        document.getElementById('btn-macro-forward').addEventListener('click', async () => { if (!isAnimating) await macroForward(); });
+        document.getElementById('btn-macro-backward').addEventListener('click', async () => { if (!isAnimating) await macroBackward(); });
+        document.getElementById('btn-macro-left').addEventListener('click', async () => { if (!isAnimating) await macroLeft(); });
+        document.getElementById('btn-macro-right').addEventListener('click', async () => { if (!isAnimating) await macroRight(); });
+        document.getElementById('btn-macro-wave1').addEventListener('click', async () => { if (!isAnimating) await macroWave1(); });
+        document.getElementById('btn-macro-wave2').addEventListener('click', async () => { if (!isAnimating) await macroWave2(); });
+        
+        document.getElementById('btn-exec-single').addEventListener('click', async () => { 
+            const val = document.getElementById('input-single-code').value;
+            if(val) await executeCustomCode(val);
+        });
+        const multiCodeInput = document.getElementById('input-multi-code');
+        multiCodeInput.addEventListener('input', scheduleReturnCorrectionPreview);
+        multiCodeInput.addEventListener('blur', updateReturnCorrectionPreview);
+        document.getElementById('btn-add-return-correction').addEventListener('click', appendReturnCorrectionWork);
+        document.getElementById('btn-add-return-function').addEventListener('click', appendReturnFunctionCode);
+        document.getElementById('btn-exec-multi').addEventListener('click', async () => { 
+            const val = document.getElementById('input-multi-code').value;
+            if(val) await executeCustomCode(val);
+        });
+        updateReturnCorrectionPreview();
+        document.getElementById('btn-export-gif').addEventListener('click', async () => { 
+            const val = document.getElementById('input-multi-code').value;
+            if(val) await executeCustomCodeAndSaveGif(val);
+            else alert('GIF로 저장할 여러 줄 코드를 입력해 주세요.');
+        });
+        document.getElementById('btn-apply-structure').addEventListener('click', applyStructure);
+        document.getElementById('btn-export-structure').addEventListener('click', exportStructure);
+        init();
+    </script>
+</body>
+</html>
