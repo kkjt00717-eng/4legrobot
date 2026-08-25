@@ -30,12 +30,62 @@
             color: #10b981; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: bold;
             padding: 2px 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid #10b981; border-radius: 4px; pointer-events: none;
         }
+
+        /* 3D 화면 위에서 직접 입력하는 모터 각도 변화값 */
+        .joint-angle-editor {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 4px;
+            background: rgba(17, 24, 39, 0.90);
+            border: 1px solid rgba(107, 114, 128, 0.9);
+            border-radius: 5px;
+            font-family: 'Inter', sans-serif;
+            font-size: 10px;
+            color: #e5e7eb;
+            pointer-events: auto;
+            user-select: none;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.35);
+            white-space: nowrap;
+        }
+        .joint-angle-editor.angle-active {
+            border-color: #facc15;
+            box-shadow: 0 0 7px rgba(250, 204, 21, 0.75);
+        }
+        .joint-angle-editor .joint-angle-name {
+            font-weight: 700;
+            min-width: 18px;
+            text-align: center;
+        }
+        .joint-angle-editor .joint-angle-delta {
+            color: #9ca3af;
+            font-size: 9px;
+        }
+        .joint-angle-editor input {
+            width: 39px;
+            height: 20px;
+            padding: 1px 2px;
+            border: 1px solid #4b5563;
+            border-radius: 3px;
+            background: #030712;
+            color: #f9fafb;
+            text-align: center;
+            font-size: 10px;
+            outline: none;
+            pointer-events: auto;
+        }
+        .joint-angle-editor input:focus {
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.65);
+        }
+        .joint-angle-editor.angle-active input { color: #fde047; }
+        .joint-angle-editor .joint-angle-unit { color: #9ca3af; font-size: 9px; }
         .front-label {
             color: #facc15; font-family: 'Inter', sans-serif; font-size: 16px; font-weight: bold;
             text-shadow: 0 0 5px black; pointer-events: none;
         }
         #canvas-container canvas { touch-action: none; outline: none; }
-        .motor-control.selected, .structure-wrapper.selected { border: 2px solid #facc15; box-shadow: 0 0 10px #facc15; border-radius: 0.375rem; }
+        .motor-control.selected, .motor-control.angle-active, .structure-wrapper.selected { border: 2px solid #facc15; box-shadow: 0 0 10px #facc15; border-radius: 0.375rem; }
         .pos-btn { background-color: #4b5563; }
         .pos-btn:hover:not(:disabled) { background-color: #374151; }
         .pos-btn:disabled { background-color: #374151; opacity: 0.5; cursor: not-allowed; }
@@ -91,71 +141,130 @@
                 <div id="status-light" class="w-3 h-3 rounded-full bg-gray-500" title="애니메이션 상태"></div>
             </h1>
             
-            <!-- 1. 리셋 및 적용 버튼 상단 배치 -->
+            <!-- 1. 시뮬레이터 기본 제어: 한 줄 2칸 -->
             <div class="grid grid-cols-2 gap-2 mb-4 border-b border-gray-700 pb-4">
-                <button id="btn-reset" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-2 rounded-lg transition duration-200 text-sm">초기 자세</button>
-                <button id="btn-apply-changes" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-2 rounded-lg transition duration-200 text-sm">각도 변화값 적용</button>
-                
-                <!-- 가상 중력 스위치 -->
-                <button id="btn-toggle-gravity" class="col-span-2 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-2 rounded-lg transition duration-200 text-sm flex items-center justify-center gap-2">
+                <button id="btn-reset" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] leading-tight">시뮬레이터 초기화</button>
+                <button id="btn-toggle-gravity" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] leading-tight flex items-center justify-center text-center">
                     🌍 가상 중력 (지면 밀착) : ON
                 </button>
             </div>
-            <!-- 2. 모터 각도 제어 및 코드 자동 생성 -->
-            <h2 class="text-lg font-semibold mb-2 text-center">모터 각도 제어</h2>
-            <div id="motor-controls" class="grid grid-cols-3 gap-1 mb-2"></div>
-            
-            <!-- Work 코드 생성 및 복사 영역 -->
-            <div class="mb-4 border-b border-gray-700 pb-4 flex gap-1">
-                <input type="text" id="output-work-code" readonly class="w-full p-2 bg-gray-950 border border-gray-600 rounded-md text-green-400 text-[11px] font-mono" placeholder="변화값 적용 시 코드가 생성됩니다.">
-                <button id="btn-copy-code" class="bg-gray-600 hover:bg-gray-500 px-3 rounded-lg text-xs font-bold transition whitespace-nowrap">복사</button>
+
+            <!-- 실제 로봇 속도: 모터 제어에 영향을 주는 보조 설정 -->
+            <div class="mb-3 p-2 bg-gray-900/70 border border-gray-700 rounded-lg">
+                <div class="flex items-center gap-2">
+                    <label for="robot-delay-select" class="text-[11px] font-semibold text-gray-300 whitespace-nowrap">실제 로봇 속도</label>
+                    <select id="robot-delay-select" class="flex-1 text-[11px] py-1.5">
+                        <option value="20" selected>delay 20ms (기본)</option>
+                        <option value="25">delay 25ms</option>
+                    </select>
+                </div>
+                <p id="robot-delay-help" class="mt-1 text-[9px] text-gray-500 text-center">실제 micro:bit 코드의 delay 값이 다를 때만 변경하세요.</p>
             </div>
-            <!-- 3. 동작 매크로 -->
+
+            <!-- 2. 모터 각도 제어: 3D 화면 직접 조작이 기본, 숫자 입력은 고급 기능으로 축소 -->
+            <div class="mb-2">
+                <div class="flex items-center justify-between gap-2 mb-1 px-1">
+                    <h2 class="text-sm font-semibold text-gray-200">모터 각도 제어</h2>
+                    <span class="text-[9px] text-sky-300">3D 화면에서 직접 조정</span>
+                </div>
+                <details class="bg-gray-900/70 border border-gray-700 rounded-lg">
+                    <summary class="cursor-pointer select-none px-2 py-1.5 text-[10px] text-gray-400 hover:text-gray-200 text-center">M1~M12 값 직접 입력 (고급)</summary>
+                    <div class="p-2 border-t border-gray-700">
+                        <div id="motor-controls" class="grid grid-cols-4 gap-1"></div>
+                    </div>
+                </details>
+            </div>
+            
+            <!-- Work 코드 생성 및 여러 줄 코드 연결 영역 -->
+            <div class="mb-4 border-b border-gray-700 pb-4">
+                <input type="text" id="output-work-code" readonly class="w-full p-2 bg-gray-950 border border-gray-600 rounded-md text-green-400 text-[11px] font-mono" placeholder="다리를 드래그하거나 변화값을 입력하면 Work 코드가 표시됩니다.">
+                <div class="grid grid-cols-2 gap-1 mt-1">
+                    <button id="btn-copy-code" class="bg-gray-600 hover:bg-gray-500 py-1.5 px-2 rounded-lg text-[11px] font-bold transition">복사</button>
+                    <button id="btn-append-current-work" type="button" class="bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600 disabled:opacity-60 py-1.5 px-2 rounded-lg text-[11px] font-bold transition">여러 줄에 추가</button>
+                </div>
+                <p class="mt-1 text-[9px] text-sky-200/80 text-center">현재 변화값을 여러 줄 코드에 추가하면 그 자세가 확정되고 다음 동작을 이어서 만들 수 있습니다.</p>
+            </div>
+
+            <!-- 3. 로봇 코드 실행: 핵심 작업 영역 -->
+            <h2 class="text-lg font-semibold mb-2 text-center">로봇 코드 실행</h2>
+
+            <a href="https://sites.google.com/seokchon.ms.kr/4legrobot" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center gap-2 w-full bg-blue-900/50 hover:bg-blue-800 border border-blue-700 text-blue-200 hover:text-white font-medium py-2 px-2 rounded-lg transition duration-200 text-xs mb-3 text-center decoration-transparent">
+                📚 동작 라이브러리 홈페이지 가기 ↗
+            </a>
+
+            <div class="mb-4 border-2 border-sky-800/70 rounded-xl bg-gray-900/80 overflow-hidden shadow-lg">
+                <div class="p-3">
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                        <div>
+                            <p class="text-sm font-bold text-sky-300">여러 줄 코드 입력</p>
+                            <p class="text-[10px] text-gray-400">Work(), basic.pause(), for문, 복귀()를 입력할 수 있습니다.</p>
+                        </div>
+                        <button id="btn-toggle-editor-size" type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-1 px-2 rounded text-[10px] whitespace-nowrap">⛶ 크게 보기</button>
+                    </div>
+                    <textarea id="input-multi-code" class="w-full h-52 p-2 bg-gray-950 border border-gray-600 rounded-md text-white text-xs font-mono whitespace-pre transition-all" placeholder="Work(...)&#10;basic.pause(3000)&#10;Work(...) 여러 줄 입력"></textarea>
+
+                    <div class="grid grid-cols-3 gap-1 mt-1">
+                        <button id="btn-add-return-function" type="button" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-1.5 px-1 rounded text-[10px] transition">복귀() 추가</button>
+                        <button id="btn-add-return-correction" type="button" class="bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600 disabled:opacity-60 text-white font-bold py-1.5 px-1 rounded text-[10px] transition">보정 Work 추가</button>
+                        <button id="btn-clear-multi-code" type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-1.5 px-1 rounded text-[10px] transition">입력 지우기</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-1 mt-1">
+                        <button id="btn-exec-multi" class="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-60 text-white font-bold py-2 px-2 rounded-lg transition text-sm">▶ 순차 실행</button>
+                        <button id="btn-export-gif" class="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:opacity-60 text-white font-bold py-2 px-2 rounded-lg transition text-sm">GIF 저장</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-1 mt-1">
+                        <button id="btn-reset-pose-multi" type="button" class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-2 rounded-lg transition text-sm">↺ 자세 초기화</button>
+                        <button id="btn-stop-execution" type="button" disabled class="bg-red-700 hover:bg-red-800 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-2 rounded-lg transition text-sm">■ 실행 중지</button>
+                    </div>
+
+                    <!-- 입력 코드 합계는 핵심 정보이므로 항상 표시 -->
+                    <div class="mt-3 p-2 bg-gray-950 border border-sky-900/80 rounded-lg">
+                        <div class="flex items-center justify-between gap-2 mb-1">
+                            <span class="text-[11px] font-bold text-sky-200">입력 코드 합계</span>
+                            <span class="text-[9px] text-gray-500">M1 ~ M12 누적 변화값</span>
+                        </div>
+                        <div id="return-total-values" class="grid grid-cols-4 gap-1"></div>
+                        <p id="return-correction-summary" class="mt-1 text-[9px] text-gray-400">여러 줄 코드를 입력하면 12개 모터의 누적 변화값을 보여줍니다.</p>
+                    </div>
+
+                    <p id="execution-status" class="mt-2 text-[11px] text-green-300 min-h-[1rem] text-center">실행 대기</p>
+                    <p id="code-validation-status" class="mt-1 text-[11px] min-h-[1rem] text-gray-400">코드를 입력하면 실행 가능 여부를 확인합니다.</p>
+                    <p id="code-analysis-summary" class="mt-1 text-[11px] text-sky-200 min-h-[1rem]">Work 0개 · 대기 0초 · 예상 실행시간 0초</p>
+                    <p id="gif-plan-preview" class="mt-1 text-[10px] text-amber-300 min-h-[1rem]">GIF: 코드 길이에 따라 FPS와 프레임 수를 자동 조절합니다.</p>
+                    <p id="gif-status" class="mt-1 text-[10px] text-amber-300 min-h-[1rem] text-center">delay 20ms 기본 · GIF 9MB 이하 자동 조절</p>
+
+                    <details id="return-correction-panel" class="mt-2 bg-gray-950 border border-gray-700 rounded-lg">
+                        <summary class="cursor-pointer p-2 font-semibold text-[10px] text-center text-gray-400">추가할 보정값 상세 보기</summary>
+                        <div class="p-2 border-t border-gray-700">
+                            <p class="text-[9px] text-violet-200/90 mb-2">복귀()는 시뮬레이터를 기본 자세로 되돌립니다. 실제 로봇의 오차 보정값은 로봇 코드의 복귀 함수 내부에서 처리합니다.</p>
+                            <div class="text-[10px] text-gray-400 mb-1">추가할 보정 Work 값</div>
+                            <div id="return-correction-values" class="grid grid-cols-4 gap-1"></div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- 빠른 한 줄 테스트 -->
+            <details class="mb-3 bg-gray-900 rounded-lg border border-gray-700">
+                <summary class="cursor-pointer p-2 font-semibold text-xs text-center text-gray-300">Work 1줄 빠른 테스트</summary>
+                <div class="p-2 border-t border-gray-700 flex gap-1">
+                    <input type="text" id="input-single-code" class="w-full p-2 bg-gray-950 border border-gray-600 rounded-md text-white text-xs font-mono" placeholder="Work(...) 1줄 코드">
+                    <button id="btn-exec-single" class="bg-green-600 hover:bg-green-700 px-3 rounded-lg text-sm font-bold transition whitespace-nowrap">실행</button>
+                </div>
+            </details>
+
+            <!-- 동작 매크로: 빠른 한 줄 테스트 아래 배치 -->
             <h2 class="text-lg font-semibold mb-2 text-center">동작 매크로</h2>
             <div class="grid grid-cols-3 gap-1 mb-4 border-b border-gray-700 pb-4">
-                <!-- 1줄 -->
                 <button id="btn-macro-wave1" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">손인사1</button>
                 <button id="btn-macro-forward" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">앞으로</button>
                 <button id="btn-macro-wave2" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">손인사2</button>
-                
-                <!-- 2줄 -->
                 <button id="btn-macro-left" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">왼쪽으로</button>
                 <button id="btn-macro-sitstand" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] whitespace-nowrap">앉았다 기립</button>
                 <button id="btn-macro-right" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">오른쪽으로</button>
-                <!-- 3줄 -->
                 <button id="btn-macro-standspread" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] whitespace-nowrap">서서 펼치기</button>
                 <button id="btn-macro-backward" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px]">뒤로</button>
                 <button id="btn-macro-sitspread" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-1 rounded-lg transition duration-200 text-[11px] whitespace-nowrap">앉아 펼치기</button>
-            </div>
-            <!-- 4. 단일/다중 로봇 코드 실행 -->
-            <h2 class="text-lg font-semibold mb-2 text-center">로봇 코드 실행</h2>
-            <a href="https://sites.google.com/view/4leg-robot-library/library" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center gap-2 w-full bg-blue-900/50 hover:bg-blue-800 border border-blue-700 text-blue-200 hover:text-white font-medium py-2 px-2 rounded-lg transition duration-200 text-xs mb-3 text-center decoration-transparent">
-                📚 동작 라이브러리 홈페이지 가기 ↗
-            </a>
-            <div class="mb-2 flex gap-1">
-                <input type="text" id="input-single-code" class="w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white text-xs font-mono" placeholder="Work(...) 1줄 코드">
-                <button id="btn-exec-single" class="bg-green-600 hover:bg-green-700 px-3 rounded-lg text-sm font-bold transition whitespace-nowrap">실행</button>
-            </div>
-            <div class="mb-4 border-b border-gray-700 pb-4">
-                <textarea id="input-multi-code" class="w-full h-48 p-2 bg-gray-900 border border-gray-600 rounded-md text-white text-xs font-mono whitespace-pre" placeholder="Work(...)&#10;basic.pause(3000)&#10;Work(...) 여러 줄 입력"></textarea>
-                <button id="btn-exec-multi" class="w-full mt-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 text-sm">순차 실행</button>
-                <button id="btn-export-gif" class="w-full mt-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 text-sm">순차 실행 후 GIF 저장</button>
-                <p id="gif-status" class="mt-1 mb-2 text-[11px] text-amber-300 min-h-[1rem] text-center">60fps 부드러운 캡처</p>
-                <div id="return-correction-panel" class="mt-2 p-2 bg-gray-950 border border-gray-700 rounded-lg">
-                    <div class="flex items-start justify-between gap-2 mb-1">
-                        <p class="text-[11px] font-semibold text-gray-200 pt-1">기본 자세 복귀 보정값</p>
-                        <div class="flex flex-col gap-1 min-w-[7.5rem]">
-                            <button id="btn-add-return-correction" type="button" class="bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600 disabled:opacity-60 text-white font-bold py-1 px-2 rounded text-[11px] transition">보정 Work 추가</button>
-                            <button id="btn-add-return-function" type="button" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-1 px-2 rounded text-[11px] transition">복귀 함수 추가</button>
-                        </div>
-                    </div>
-                    <p id="return-correction-summary" class="text-[10px] text-gray-400 mb-1">여러 줄 코드를 입력하면 12개 모터의 누적 변화값과 0으로 되돌릴 보정값을 보여줍니다.</p>
-                    <p class="text-[10px] text-violet-200/90 mb-2">복귀 함수는 동작 변화가 커서 합계가 0이어도 기본 자세로 정확히 돌아오지 않을 때 사용합니다.</p>
-                    <div class="text-[10px] text-gray-400 mb-1">입력 코드 합계</div>
-                    <div id="return-total-values" class="grid grid-cols-4 gap-1 mb-2"></div>
-                    <div class="text-[10px] text-gray-400 mb-1">추가할 보정 Work 값</div>
-                    <div id="return-correction-values" class="grid grid-cols-4 gap-1"></div>
-                </div>
             </div>
             <!-- 5. 조정 대상 및 위치 제어 -->
             <h2 class="text-lg font-semibold mb-2 text-center">조정 대상 선택</h2>
@@ -181,9 +290,9 @@
                     <textarea id="export-data" readonly class="w-full mt-2 p-2 bg-gray-950 border border-gray-600 rounded-md text-xs h-32" placeholder="여기에 구조 데이터가 JSON으로 표시됩니다..."></textarea>
                 </div>
             </details>
-            <!-- 6. 저작권 정보 (CCL) -->
+            <!-- 6. 저작권 및 제작자 정보 (CCL) -->
             <div class="mt-8 pt-4 border-t border-gray-700 text-center text-xs text-gray-400">
-                <p class="font-bold text-gray-300 mb-2">🤖 교육용 로봇 시뮬레이터</p>
+                <p class="font-bold text-gray-300 mb-2">🤖 생각대로 메이커</p>
                 <div class="flex justify-center items-center gap-1 mb-2">
                     <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.ko" target="_blank" rel="noopener noreferrer">
                         <img src="https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png" alt="CC BY-NC-SA" class="h-6 opacity-80 hover:opacity-100 transition">
@@ -203,7 +312,8 @@
             <div id="label-container" class="w-full h-full absolute top-0 left-0"></div>
             <div class="absolute top-2 left-2 bg-gray-900 bg-opacity-70 p-2 rounded-lg text-xs z-10">
                 <p>뷰 이동: 마우스 드래그 / 줌: 휠</p>
-                <p>모터 이동: 모터 구체 클릭 & 드래그</p>
+                <p>다리 각도: 파란 다리 클릭 & 드래그 → 변화값 자동 입력</p>
+                <p>구조 이동: 빨간 모터 구체 클릭 & 드래그</p>
                 <p>수평면 제어: '조정 대상' 메뉴에서 [수평면] 선택 후 X, Y, Z 버튼 클릭</p>
             </div>
         </div>
@@ -253,8 +363,9 @@
                             <p>본 시뮬레이터는 학생 개인정보를 입력하지 않고 사용할 수 있도록 설계되었습니다. 수업 활용 시에도 학생의 이름, 학번, 연락처 등 개인정보를 입력하지 않도록 안내하며, 개인정보 및 학습데이터가 저장되지 않도록 운영합니다.</p>
                         </section>
                         <section>
-                            <h3 class="font-semibold text-gray-100">9. 문의 안내</h3>
-                            <p>본 시뮬레이터는 개인정보를 수집하지 않습니다. 관련 문의는 수업 안내 경로를 통해 할 수 있습니다.</p>
+                            <h3 class="font-semibold text-gray-100">9. 개인정보 보호 책임자</h3>
+                            <p>본 시뮬레이터의 개인정보 보호 관련 문의는 아래 담당자에게 할 수 있습니다.</p>
+                            <p>담당자: 김정수<br>소속: 석촌중학교 교사<br>이메일: <a href="mailto:salladin0717@gmail.com" class="text-blue-300 hover:text-blue-200 underline">salladin0717@gmail.com</a></p>
                         </section>
                         <section>
                             <h3 class="font-semibold text-gray-100">10. 개인정보 처리방침의 변경</h3>
@@ -310,8 +421,13 @@
         const motorInputs = [];
         const motorValueDisplays = [];
         const motorControlDivs = [];
+        const motorAngleOverlayInputs = [];
+        const motorAngleOverlayWrappers = [];
         const structureControlWrappers = {}; 
         const draggableObjects = [];
+        const limbRaycaster = new THREE.Raycaster();
+        const limbPointer = new THREE.Vector2();
+        let limbAngleDrag = null;
         let selectedIndex = null; 
         let selectedType = null; 
         const positionButtons = [];
@@ -319,6 +435,9 @@
         const CoreWLstF = [110, 70, 90, 110, 70, 90, 110, 70, 90, 110, 70, 90];
         
         let isAnimating = false;
+        let isSequenceExecuting = false;
+        let executionStopRequested = false;
+        let codeAnalysisTimer = null;
         const DEG_TO_RAD = Math.PI / 180;
         
         const jointAxes = ["x", "x", "z", "x", "x", "z", "x", "x", "z", "x", "x", "z"];
@@ -401,7 +520,8 @@
             scene.add(ground);
             createRobot(); 
             addFrontIndicator();
-            initDragControls(); 
+            initDragControls();
+            initLimbAngleControls();
             createMotorControls(); 
             createStructureControls(); 
             initPositionControls(); 
@@ -443,18 +563,18 @@
                 
                 const s_p=robotStructure.motorPositions[s_idx], jS=new THREE.Group(); jS.position.set(s_p.x,s_p.y,s_p.z); body.add(jS); joints[s_idx]=jS; 
                 const sS=new THREE.Mesh(new THREE.SphereGeometry(1.2), jointMat); sS.userData={index:s_idx, type:'joint'}; jS.add(sS); draggableObjects.push(sS); 
-                addMotorLabel(jS, `M${s_idx+1}`); addLegLabel(jS, leg.name);
+                addMotorLabel(jS, s_idx); addLegLabel(jS, leg.name);
                 const visS = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.1, 16), planeVisualMat);
                 body.add(visS); planeVisuals[s_idx] = visS; 
                 const k1_p=robotStructure.motorPositions[k1_idx], jK1=new THREE.Group(); jK1.position.set(k1_p.x,k1_p.y,k1_p.z); jS.add(jK1); joints[k1_idx]=jK1; 
                 const k1S=new THREE.Mesh(new THREE.SphereGeometry(1.0), jointMat); k1S.userData={index:k1_idx, type:'joint'}; jK1.add(k1S); draggableObjects.push(k1S); 
-                addMotorLabel(jK1, `M${k1_idx+1}`);
+                addMotorLabel(jK1, k1_idx);
                 
                 const visK1 = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.1, 16), planeVisualMat);
                 jS.add(visK1); planeVisuals[k1_idx] = visK1;
                 const k2_p=robotStructure.motorPositions[k2_idx], jK2=new THREE.Group(); jK2.position.set(k2_p.x,k2_p.y,k2_p.z); jK1.add(jK2); joints[k2_idx]=jK2; 
                 const k2S=new THREE.Mesh(new THREE.SphereGeometry(0.8), jointMat); k2S.userData={index:k2_idx, type:'joint'}; jK2.add(k2S); draggableObjects.push(k2S); 
-                addMotorLabel(jK2, `M${k2_idx+1}`);
+                addMotorLabel(jK2, k2_idx);
                 
                 const visK2 = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.1, 16), planeVisualMat);
                 jK1.add(visK2); planeVisuals[k2_idx] = visK2;
@@ -462,9 +582,283 @@
                 const fp=new THREE.Group(); fp.position.set(f_p.x,f_p.y,f_p.z); fp.userData={legIndex: legIdx}; jK2.add(fp);
             });
         }
-        function addMotorLabel(joint, text) { const d=document.createElement('div'); d.className='label'; d.textContent=text; const l=new CSS2DObject(d); l.position.set(0, 1.5, 0); joint.add(l); }
+        function addMotorLabel(joint, motorIndex) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'joint-angle-editor';
+            wrapper.title = `M${motorIndex + 1} 각도 변화값 · 직접 입력하거나 파란 다리를 드래그하세요.`;
+
+            const name = document.createElement('span');
+            name.className = 'joint-angle-name';
+            name.textContent = `M${motorIndex + 1}`;
+
+            const delta = document.createElement('span');
+            delta.className = 'joint-angle-delta';
+            delta.textContent = 'Δ';
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = '1';
+            input.value = '0';
+            input.dataset.motorIndex = motorIndex;
+            input.setAttribute('aria-label', `M${motorIndex + 1} 각도 변화값`);
+
+            const unit = document.createElement('span');
+            unit.className = 'joint-angle-unit';
+            unit.textContent = '°';
+
+            wrapper.append(name, delta, input, unit);
+            motorAngleOverlayInputs[motorIndex] = input;
+            motorAngleOverlayWrappers[motorIndex] = wrapper;
+
+            const stopUiPropagation = (event) => event.stopPropagation();
+            ['pointerdown', 'pointerup', 'click', 'dblclick'].forEach(type => wrapper.addEventListener(type, stopUiPropagation));
+            wrapper.addEventListener('wheel', stopUiPropagation, { passive: true });
+
+            input.addEventListener('focus', () => {
+                setTimeout(() => input.select(), 0);
+            });
+            input.addEventListener('keydown', (event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') input.blur();
+                if (event.key === 'Escape') {
+                    syncMotorAngleOverlayInputs();
+                    input.blur();
+                }
+            });
+            input.addEventListener('input', () => {
+                if (isAnimating || isSequenceExecuting) {
+                    syncMotorAngleOverlayInputs();
+                    return;
+                }
+                const sidebarInput = motorInputs[motorIndex];
+                if (!sidebarInput) return;
+
+                const parsed = Number(input.value);
+                if (!Number.isFinite(parsed)) {
+                    sidebarInput.value = '';
+                    previewMotorInputChanges();
+                    return;
+                }
+
+                // 현재 자세를 기준으로 실제 서보 표시 범위(0~180도)를 벗어나지 않게 변화값을 제한합니다.
+                const offset = UIWLstF[motorIndex] - CoreWLstF[motorIndex];
+                const baseDisplay = WorkLst[motorIndex] + offset;
+                const minChange = -baseDisplay;
+                const maxChange = 180 - baseDisplay;
+                const clampedChange = Math.round(Math.max(minChange, Math.min(maxChange, parsed)) * 10) / 10;
+                sidebarInput.value = Object.is(clampedChange, -0) || clampedChange === 0 ? '0' : String(clampedChange);
+                if (clampedChange !== parsed) input.value = String(clampedChange);
+                previewMotorInputChanges();
+            });
+            input.addEventListener('blur', () => syncMotorAngleOverlayInputs());
+
+            const label = new CSS2DObject(wrapper);
+            label.position.set(0, 2.0, 0);
+            joint.add(label);
+        }
         function addLegLabel(joint, text) { const d=document.createElement('div'); d.className='leg-label'; d.textContent=text; const l=new CSS2DObject(d); l.position.set(0, 3.5, 0); joint.add(l); } 
-        function initDragControls() { dragControls=new DragControls(draggableObjects, camera, labelRenderer.domElement); dragControls.addEventListener('dragstart', (e)=>{ orbitControls.enabled=false; e.object.material.emissive.set(0xaaaa00); }); dragControls.addEventListener('drag', (e)=>{ updateStructureFromDrag(e.object); updateJointPositionsAndCreateLimbs(); }); dragControls.addEventListener('dragend', (e)=>{ orbitControls.enabled=true; e.object.material.emissive.set(0x000000); updateStructureFromDrag(e.object); updateStructureUI(); updateJointPositionsAndCreateLimbs(); }); }
+        function initDragControls() {
+            dragControls = new DragControls(draggableObjects, camera, labelRenderer.domElement);
+            dragControls.addEventListener('dragstart', (e) => {
+                if (limbAngleDrag) return;
+                orbitControls.enabled = false;
+                e.object.material.emissive.set(0xaaaa00);
+            });
+            dragControls.addEventListener('drag', (e) => {
+                if (limbAngleDrag) return;
+                updateStructureFromDrag(e.object);
+                updateJointPositionsAndCreateLimbs();
+            });
+            dragControls.addEventListener('dragend', (e) => {
+                if (limbAngleDrag) return;
+                orbitControls.enabled = true;
+                e.object.material.emissive.set(0x000000);
+                updateStructureFromDrag(e.object);
+                updateStructureUI();
+                updateJointPositionsAndCreateLimbs();
+            });
+        }
+
+        function setLimbPointerFromEvent(event) {
+            const rect = labelRenderer.domElement.getBoundingClientRect();
+            limbPointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            limbPointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            limbRaycaster.setFromCamera(limbPointer, camera);
+        }
+
+        function getMotorAxisWorld(index) {
+            const axisName = jointAxes[index];
+            const axisVec = new THREE.Vector3(axisName === 'x' ? 1 : 0, axisName === 'y' ? 1 : 0, axisName === 'z' ? 1 : 0);
+            const pl = robotStructure.motorPlanes[index];
+            const qPlane = new THREE.Quaternion().setFromEuler(new THREE.Euler(pl.x * DEG_TO_RAD, pl.y * DEG_TO_RAD, pl.z * DEG_TO_RAD, 'XYZ'));
+            const localAxis = axisVec.applyQuaternion(qPlane).normalize();
+            const parentQuat = joints[index].parent.getWorldQuaternion(new THREE.Quaternion());
+            return localAxis.applyQuaternion(parentQuat).normalize();
+        }
+
+        function getMotorPreviewChange(index) {
+            const value = parseFloat(motorInputs[index]?.value);
+            return Number.isFinite(value) ? value : 0;
+        }
+
+        function formatAngleChangeForOverlay(value) {
+            const rounded = Math.round((Number(value) || 0) * 10) / 10;
+            if (Object.is(rounded, -0) || rounded === 0) return '0';
+            return String(rounded);
+        }
+
+        function syncMotorAngleOverlayInputs() {
+            for (let i = 0; i < 12; i++) {
+                const input = motorAngleOverlayInputs[i];
+                const wrapper = motorAngleOverlayWrappers[i];
+                if (!input) continue;
+                const change = getMotorPreviewChange(i);
+                if (document.activeElement !== input) input.value = formatAngleChangeForOverlay(change);
+                if (wrapper) wrapper.classList.toggle('angle-active', Math.abs(change) > 0.0001);
+            }
+        }
+
+        function updateMotorPreviewDisplays() {
+            for (let i = 0; i < 12; i++) {
+                if (!motorValueDisplays[i]) continue;
+                const offset = UIWLstF[i] - CoreWLstF[i];
+                const previewWork = WorkLst[i] + getMotorPreviewChange(i);
+                const rawDisplayValue = Math.round(previewWork + offset);
+                const visibleDisplayValue = Math.round(clampServoDisplayValue(previewWork + offset));
+                const hasPreview = Math.abs(getMotorPreviewChange(i)) > 0.0001;
+                // 다리 드래그/변화값 입력으로 실제 변화가 있을 때만 노란 강조를 표시합니다.
+                // 변화값이 다시 0이 되면 강조도 즉시 해제됩니다.
+                motorControlDivs[i]?.classList.toggle('angle-active', hasPreview);
+                motorValueDisplays[i].classList.toggle('text-yellow-300', hasPreview);
+                motorValueDisplays[i].classList.toggle('text-gray-300', !hasPreview);
+                motorValueDisplays[i].innerText = rawDisplayValue !== visibleDisplayValue
+                    ? `미리보기: ${visibleDisplayValue}° / 내부: ${rawDisplayValue}°`
+                    : `${hasPreview ? '미리보기' : '현재'}: ${visibleDisplayValue}°`;
+            }
+        }
+
+        function previewMotorInputChanges() {
+            if (isAnimating || isSequenceExecuting) return;
+            const previewChanges = new Array(12).fill(0);
+            let hasPreviewChange = false;
+            for (let i = 0; i < 12; i++) {
+                const change = getMotorPreviewChange(i);
+                previewChanges[i] = Math.round(change * 10) / 10;
+                if (Math.abs(change) > 0.0001) hasPreviewChange = true;
+                setJointAngleByWorkValue(i, WorkLst[i] + change);
+            }
+            updateJointPositionsAndCreateLimbs();
+            updateMotorPreviewDisplays();
+            syncMotorAngleOverlayInputs();
+
+            // 다리를 드래그하거나 숫자를 입력하는 즉시 생성될 Work 코드를 보여줍니다.
+            const output = document.getElementById('output-work-code');
+            if (output) {
+                output.value = hasPreviewChange ? `Work(${previewChanges.join(', ')}, 10)` : '';
+            }
+        }
+
+        function clearMotorPreviewInputs() {
+            motorInputs.forEach(input => { if (input) input.value = ''; });
+            for (let i = 0; i < 12; i++) setJointAngleByWorkValue(i, WorkLst[i]);
+            updateJointPositionsAndCreateLimbs();
+            updateMotorDisplays();
+        }
+
+        function initLimbAngleControls() {
+            const dom = labelRenderer.domElement;
+            if (!dom) return;
+
+            dom.addEventListener('pointerdown', (event) => {
+                if (event.target instanceof Element && event.target.closest('.joint-angle-editor')) return;
+                if (event.button !== 0 || isAnimating || isSequenceExecuting) return;
+                setLimbPointerFromEvent(event);
+
+                const limbHits = limbRaycaster.intersectObjects(limbsGroup.children, false)
+                    .filter(hit => Number.isInteger(hit.object.userData?.angleMotorIndex));
+                if (!limbHits.length) return;
+
+                // 빨간 모터 구체를 직접 누른 경우에는 기존 구조 이동 기능을 우선합니다.
+                const jointHits = limbRaycaster.intersectObjects(draggableObjects, false);
+                if (jointHits.length && jointHits[0].distance <= limbHits[0].distance + 0.35) return;
+
+                const motorIndex = limbHits[0].object.userData.angleMotorIndex;
+                const joint = joints[motorIndex];
+                if (!joint || !joint.parent) return;
+
+                robot.updateMatrixWorld(true);
+                const pivot = joint.getWorldPosition(new THREE.Vector3());
+                const axisWorld = getMotorAxisWorld(motorIndex);
+                const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(axisWorld, pivot);
+                const hitPoint = limbRaycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
+                if (!hitPoint) return;
+
+                const startVector = hitPoint.sub(pivot).normalize();
+                if (startVector.lengthSq() < 0.0001) return;
+
+                limbAngleDrag = {
+                    pointerId: event.pointerId,
+                    motorIndex,
+                    pivot,
+                    axisWorld,
+                    dragPlane,
+                    startVector,
+                    startInputValue: getMotorPreviewChange(motorIndex)
+                };
+
+                orbitControls.enabled = false;
+                if (dragControls) dragControls.enabled = false;
+                motorControlDivs[motorIndex]?.classList.toggle('angle-active', Math.abs(getMotorPreviewChange(motorIndex)) > 0.0001);
+                try { dom.setPointerCapture(event.pointerId); } catch (_) {}
+                event.preventDefault();
+                event.stopPropagation();
+            }, true);
+
+            dom.addEventListener('pointermove', (event) => {
+                if (!limbAngleDrag || limbAngleDrag.pointerId !== event.pointerId) return;
+                setLimbPointerFromEvent(event);
+                const hitPoint = limbRaycaster.ray.intersectPlane(limbAngleDrag.dragPlane, new THREE.Vector3());
+                if (!hitPoint) return;
+
+                const currentVector = hitPoint.sub(limbAngleDrag.pivot).normalize();
+                if (currentVector.lengthSq() < 0.0001) return;
+
+                const cross = limbAngleDrag.startVector.clone().cross(currentVector);
+                const dot = THREE.MathUtils.clamp(limbAngleDrag.startVector.dot(currentVector), -1, 1);
+                const signedAngle = Math.atan2(limbAngleDrag.axisWorld.dot(cross), dot);
+                const index = limbAngleDrag.motorIndex;
+                let nextChange = limbAngleDrag.startInputValue + THREE.MathUtils.radToDeg(signedAngle) / motorDir[index];
+
+                // 직접 조작은 실제 서보가 움직일 수 있는 0~180도 범위 안에서만 미리보기합니다.
+                const offset = UIWLstF[index] - CoreWLstF[index];
+                const baseDisplay = WorkLst[index] + offset;
+                const targetDisplay = clampServoDisplayValue(baseDisplay + nextChange);
+                nextChange = targetDisplay - baseDisplay;
+                nextChange = Math.round(nextChange * 10) / 10;
+                if (Object.is(nextChange, -0)) nextChange = 0;
+
+                motorInputs[index].value = nextChange;
+                previewMotorInputChanges();
+                event.preventDefault();
+                event.stopPropagation();
+            }, true);
+
+            const finishLimbDrag = (event) => {
+                if (!limbAngleDrag || (event.pointerId !== undefined && limbAngleDrag.pointerId !== event.pointerId)) return;
+                const index = limbAngleDrag.motorIndex;
+                try { dom.releasePointerCapture(limbAngleDrag.pointerId); } catch (_) {}
+                limbAngleDrag = null;
+                orbitControls.enabled = true;
+                if (dragControls) dragControls.enabled = true;
+                motorControlDivs[index]?.classList.toggle('angle-active', Math.abs(getMotorPreviewChange(index)) > 0.0001);
+                updateJointPositionsAndCreateLimbs();
+                event?.preventDefault?.();
+                event?.stopPropagation?.();
+            };
+
+            dom.addEventListener('pointerup', finishLimbDrag, true);
+            dom.addEventListener('pointercancel', finishLimbDrag, true);
+        }
         
         function updateStructureFromDrag(draggedObject) { 
             const idx=draggedObject.userData.index; 
@@ -512,7 +906,8 @@
                 const offset = UIWLstF[i] - CoreWLstF[i];
                 const vS=document.createElement('span'); vS.id=`motor-value-${i}`; vS.className="text-[10px] text-gray-300 pointer-events-none"; vS.innerText=`${Math.round(WorkLst[i] + offset)}°`;
                 
-                const inp=document.createElement('input'); inp.type="number"; inp.id=`motor-input-${i}`; inp.placeholder="변화"; inp.className=ic; inp.dataset.index=i;
+                const inp=document.createElement('input'); inp.type="number"; inp.id=`motor-input-${i}`; inp.placeholder="변화"; inp.className=ic; inp.dataset.index=i; inp.title=`M${i+1} 각도 변화값`;
+                inp.addEventListener('input', previewMotorInputChanges);
                 d.appendChild(l); d.appendChild(vS); d.appendChild(inp); container.appendChild(d);
                 motorInputs.push(inp); motorValueDisplays.push(vS); motorControlDivs.push(d);
                 
@@ -526,6 +921,7 @@
                 itemSelectDropdown.appendChild(opt);
             });
             itemSelectDropdown.addEventListener('change', handleItemSelectChange);
+            syncMotorAngleOverlayInputs();
         }
         function handleItemSelectChange(event) {
             const value = event.target.value;
@@ -647,7 +1043,7 @@
                 if(fp) fp.position.set(f_p.x, f_p.y, f_p.z); 
             }); 
             body.updateMatrixWorld(true);
-            if (useGravity) {
+            if (useGravity && !limbAngleDrag) {
                 // 기존 방식은 '발끝 4개 중 가장 낮은 점'만 기준으로 몸통을 보정했습니다.
                 // 그러면 앉기/엎드리기처럼 몸통이 발끝보다 아래로 내려가는 동작에서
                 // 몸통이 기준면 아래로 파고드는 문제가 생길 수 있습니다.
@@ -714,9 +1110,9 @@
                 const bW = body.getWorldPosition(new THREE.Vector3());
                 const sS = bW.clone().add(jS.position); 
                 const lBS = createLimbMesh(sS, sW, limbMat); if(lBS) limbsGroup.add(lBS); 
-                const lSK1 = createLimbMesh(sW, k1W, limbMat); if(lSK1) limbsGroup.add(lSK1); 
-                const lK1K2 = createLimbMesh(k1W, k2W, limbMat); if(lK1K2) limbsGroup.add(lK1K2); 
-                const lK2F = createLimbMesh(k2W, fW, limbMat); if(lK2F) limbsGroup.add(lK2F); 
+                const lSK1 = createLimbMesh(sW, k1W, limbMat); if(lSK1) { lSK1.userData.angleMotorIndex = s_idx; lSK1.userData.legIndex = legIdx; limbsGroup.add(lSK1); } 
+                const lK1K2 = createLimbMesh(k1W, k2W, limbMat); if(lK1K2) { lK1K2.userData.angleMotorIndex = k1_idx; lK1K2.userData.legIndex = legIdx; limbsGroup.add(lK1K2); } 
+                const lK2F = createLimbMesh(k2W, fW, limbMat); if(lK2F) { lK2F.userData.angleMotorIndex = k2_idx; lK2F.userData.legIndex = legIdx; limbsGroup.add(lK2F); } 
                 const fmsh = new THREE.Mesh(footGeo, footMat); fmsh.position.copy(fW); limbsGroup.add(fmsh); 
             }); 
         }
@@ -767,42 +1163,76 @@
         
         function exportStructure() { const d={ structure: robotStructure, axes: jointAxes, WLstF: UIWLstF }; const j=JSON.stringify(d, null, 2); document.getElementById('export-data').value = j; }
         
-        async function applyChanges() { 
-            if(isAnimating) return; 
-            let c=new Array(12).fill(0), h=false; 
-            for(let i=0; i<12; i++){ 
-                const chg=parseFloat(motorInputs[i].value)||0; 
-                if(chg!==0){ 
-                    // 마이크로비트 실제 코드와 동일하게 변화값은 그대로 누적합니다.
-                    // 0~180 제한은 화면에 표시할 때만 적용하고, WorkLst 자체는 제한하지 않습니다.
-                    c[i] = parseFloat(chg.toFixed(1));
-                    h = true;
-                } 
-                motorInputs[i].value=""; 
-            } 
-            if(h) {
-                const codeStr = `Work(${c.join(', ')}, 10)`;
-                document.getElementById('output-work-code').value = codeStr;
-                
-                await Work(c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11], 10); 
+        function collectMotorPreviewChanges() {
+            const changes = new Array(12).fill(0);
+            let hasChange = false;
+            for (let i = 0; i < 12; i++) {
+                const chg = parseFloat(motorInputs[i]?.value) || 0;
+                if (chg !== 0) {
+                    changes[i] = parseFloat(chg.toFixed(1));
+                    hasChange = true;
+                }
             }
+            return { changes, hasChange };
         }
+
+        function commitMotorPreviewChanges(changes) {
+            WorkLst = WorkLst.map((current, index) => getRawWorkTarget(current, changes[index]));
+            for (let i = 0; i < 12; i++) {
+                motorInputs[i].value = '';
+                setJointAngleByWorkValue(i, WorkLst[i]);
+            }
+            updateJointPositionsAndCreateLimbs();
+            updateMotorDisplays();
+        }
+
+        async function appendCurrentMotorChangesToMultiCode() {
+            if (isAnimating || isSequenceExecuting) return;
+            const { changes, hasChange } = collectMotorPreviewChanges();
+            if (!hasChange) {
+                setExecutionStatus('먼저 파란 다리를 드래그하거나 모터 변화값을 입력해 주세요.', 'error');
+                return;
+            }
+
+            const code = `Work(${changes.join(', ')}, 10)`;
+            const textarea = document.getElementById('input-multi-code');
+            if (!textarea) return;
+            const currentCode = textarea.value.trimEnd();
+            textarea.value = currentCode ? `${currentCode}
+${code}` : code;
+            document.getElementById('output-work-code').value = code;
+
+            // 다음 동작을 현재 자세 기준으로 이어서 만들 수 있도록 동시에 확정합니다.
+            commitMotorPreviewChanges(changes);
+
+            textarea.scrollTop = textarea.scrollHeight;
+            await updateReturnCorrectionPreview();
+            updateCodeAnalysisPreview();
+            setExecutionStatus('현재 각도 변화값을 여러 줄 코드에 추가했습니다.', 'success');
+        }
+
         function updateMotorDisplays() { 
             for(let i=0; i<12; i++) { 
                 const offset = UIWLstF[i] - CoreWLstF[i];
                 const rawDisplayValue = Math.round(WorkLst[i] + offset);
                 const visibleDisplayValue = Math.round(clampServoDisplayValue(WorkLst[i] + offset));
                 if (motorValueDisplays[i]) {
+                    motorValueDisplays[i].classList.remove('text-yellow-300');
+                    motorValueDisplays[i].classList.add('text-gray-300');
                     if (rawDisplayValue !== visibleDisplayValue) {
                         motorValueDisplays[i].innerText = `현재: ${visibleDisplayValue}° / 내부: ${rawDisplayValue}°`;
                     } else {
                         motorValueDisplays[i].innerText = `현재: ${visibleDisplayValue}°`;
                     }
                 } 
-            } 
+            }
+            syncMotorAngleOverlayInputs();
         }
         function resetPosition(animate=true) { 
-            if(isAnimating) return; isAnimating=true; statusLight.classList.remove('bg-gray-500','bg-green-500'); statusLight.classList.add('bg-yellow-500'); 
+            if(isAnimating) return;
+            motorInputs.forEach(input => { if (input) input.value = ""; });
+            syncMotorAngleOverlayInputs();
+            isAnimating=true; statusLight.classList.remove('bg-gray-500','bg-green-500'); statusLight.classList.add('bg-yellow-500'); 
             const tl=gsap.timeline({ onComplete: ()=>{ isAnimating=false; statusLight.classList.remove('bg-yellow-500'); statusLight.classList.add('bg-gray-500'); updateMotorDisplays(); } }); 
             
             const d = 0.5;
@@ -983,12 +1413,12 @@
         }
 
         async function runWorkNow(s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12, speed) {
-            // 여러 줄 입력창, 매크로 버튼, 직접 Work 호출이 모두 사용하는 실제 실행기입니다.
-            // GSAP 타임라인을 여러 번 이어 붙이면 같은 속성 tween이 overwrite되거나 완료 시점이 겹쳐
-            // for문 반복 동작이 1회처럼 보일 수 있어, requestAnimationFrame 기반 수동 보간으로 바꿨습니다.
+            // 실제 micro:bit Work()의 (speed + 1) × delay 실행시간에 맞춰 수동 보간합니다.
             while (isAnimating) {
-                await new Promise(r => setTimeout(r, 20));
+                if (executionStopRequested) return;
+                await new Promise(r => setTimeout(r, 10));
             }
+            if (executionStopRequested) return;
 
             isAnimating = true;
             statusLight.classList.remove('bg-gray-500','bg-yellow-500');
@@ -997,35 +1427,38 @@
             const changes = [s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12].map(v => Number(v) || 0);
             const startWorkValues = [...WorkLst];
             const targetWorkValues = startWorkValues.map((current, index) => getRawWorkTarget(current, changes[index]));
-
-            // 기존 speed 체계는 유지하되, 너무 짧아 반복이 1번처럼 보이는 것을 줄이기 위해 최소 표시 시간을 둡니다.
-            const baseDurationMs = Math.max(180, (Number(speed) || 0) * 25);
+            const baseDurationMs = getWorkDurationMs(speed);
             const durationMs = isGifExporting ? baseDurationMs * GIF_EXPORT_MOTION_SLOWDOWN : baseDurationMs;
             const startTime = performance.now();
+            let lastProgress = 0;
 
-            while (true) {
-                const now = performance.now();
-                const progress = Math.min(1, (now - startTime) / durationMs);
+            try {
+                while (true) {
+                    const now = performance.now();
+                    const progress = Math.min(1, (now - startTime) / durationMs);
+                    lastProgress = progress;
 
-                for (let i = 0; i < 12; i++) {
-                    const value = startWorkValues[i] + (targetWorkValues[i] - startWorkValues[i]) * progress;
-                    setJointAngleByWorkValue(i, value);
+                    for (let i = 0; i < 12; i++) {
+                        const value = startWorkValues[i] + (targetWorkValues[i] - startWorkValues[i]) * progress;
+                        setJointAngleByWorkValue(i, value);
+                    }
+                    updateJointPositionsAndCreateLimbs();
+
+                    if (progress >= 1 || executionStopRequested) break;
+                    await waitAnimationFrame();
                 }
 
+                WorkLst = executionStopRequested
+                    ? startWorkValues.map((value, index) => value + (targetWorkValues[index] - value) * lastProgress)
+                    : targetWorkValues;
+                for (let i = 0; i < 12; i++) setJointAngleByWorkValue(i, WorkLst[i]);
                 updateJointPositionsAndCreateLimbs();
-
-                if (progress >= 1) break;
-                await waitAnimationFrame();
+                updateMotorDisplays();
+            } finally {
+                isAnimating = false;
+                statusLight.classList.remove('bg-green-500');
+                statusLight.classList.add('bg-gray-500');
             }
-
-            WorkLst = targetWorkValues;
-            for (let i = 0; i < 12; i++) setJointAngleByWorkValue(i, WorkLst[i]);
-            updateJointPositionsAndCreateLimbs();
-            updateMotorDisplays();
-
-            isAnimating = false;
-            statusLight.classList.remove('bg-green-500');
-            statusLight.classList.add('bg-gray-500');
         }
 
         async function Work(s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12, speed) {
@@ -1152,13 +1585,98 @@
                 .trim();
         }
 
-        const GIF_EXPORT_FPS = 60;
+        // 실제 micro:bit Work() 안의 basic.pause(delay)와 같은 값입니다.
+        // 사용자가 20ms(기본) 또는 25ms를 선택하면 모든 Work 실행시간과 GIF 예상시간에 함께 적용됩니다.
+        const ROBOT_WORK_STEP_DELAY_DEFAULT_MS = 20;
+        const ROBOT_WORK_STEP_DELAY_OPTIONS_MS = [20, 25];
+        let robotWorkStepDelayMs = ROBOT_WORK_STEP_DELAY_DEFAULT_MS;
+
+        function getRobotWorkStepDelayMs() {
+            return robotWorkStepDelayMs;
+        }
+
+        function setRobotWorkStepDelayMs(value) {
+            const parsed = Number(value);
+            robotWorkStepDelayMs = ROBOT_WORK_STEP_DELAY_OPTIONS_MS.includes(parsed)
+                ? parsed
+                : ROBOT_WORK_STEP_DELAY_DEFAULT_MS;
+
+            const select = document.getElementById('robot-delay-select');
+            if (select && Number(select.value) !== robotWorkStepDelayMs) {
+                select.value = String(robotWorkStepDelayMs);
+            }
+            return robotWorkStepDelayMs;
+        }
+
+        function getWorkDurationMs(speed) {
+            const normalizedSpeed = Math.max(0, Math.round(Number(speed) || 0));
+            const stepDelayMs = getRobotWorkStepDelayMs();
+            // micro:bit 원본 코드: for (index = 0; index <= speed; index++) basic.pause(delay)
+            // 따라서 한 Work의 기준 실행시간은 총 (speed + 1) × delay 입니다.
+            return Math.max(stepDelayMs, (normalizedSpeed + 1) * stepDelayMs);
+        }
+
+        function setExecutionStatus(message, tone = 'idle') {
+            const el = document.getElementById('execution-status');
+            if (!el) return;
+            el.textContent = message;
+            el.classList.remove('text-green-300', 'text-amber-300', 'text-red-300', 'text-gray-400');
+            const cls = tone === 'error' ? 'text-red-300' : tone === 'working' ? 'text-amber-300' : tone === 'idle' ? 'text-gray-400' : 'text-green-300';
+            el.classList.add(cls);
+        }
+
+        function updateExecutionControlState() {
+            const busy = isSequenceExecuting || isGifExporting;
+            const multiButton = document.getElementById('btn-exec-multi');
+            const gifButton = document.getElementById('btn-export-gif');
+            const stopButton = document.getElementById('btn-stop-execution');
+            const resetPoseButton = document.getElementById('btn-reset-pose-multi');
+            const singleButton = document.getElementById('btn-exec-single');
+            if (multiButton) multiButton.disabled = busy;
+            if (gifButton) gifButton.disabled = busy;
+            if (singleButton) singleButton.disabled = busy;
+            if (resetPoseButton) resetPoseButton.disabled = busy;
+            if (stopButton) stopButton.disabled = !isSequenceExecuting;
+            motorAngleOverlayInputs.forEach(input => { if (input) input.disabled = busy; });
+        }
+
+        function requestExecutionStop() {
+            if (!isSequenceExecuting) return;
+            executionStopRequested = true;
+            setExecutionStatus('■ 중지 요청됨 · 현재 동작을 멈추는 중...', 'error');
+            setGifStatus(isGifExporting ? 'GIF 저장 취소 요청됨' : '실행 중지 요청됨');
+        }
+
+        async function pauseInterruptibly(ms) {
+            const totalMs = Math.max(0, Number(ms) || 0);
+            const start = performance.now();
+            while (!executionStopRequested && performance.now() - start < totalMs) {
+                const remaining = totalMs - (performance.now() - start);
+                await new Promise(resolve => setTimeout(resolve, Math.min(50, Math.max(1, remaining))));
+            }
+        }
+
+        function formatDurationForUi(ms) {
+            const seconds = Math.max(0, Number(ms) || 0) / 1000;
+            if (seconds < 10) return `${seconds.toFixed(1)}초`;
+            if (seconds < 60) return `${Math.round(seconds)}초`;
+            const minutes = Math.floor(seconds / 60);
+            const remain = Math.round(seconds % 60);
+            return `${minutes}분 ${remain}초`;
+        }
+
+        const GIF_EXPORT_MAX_FPS = 60;
+        const GIF_EXPORT_MAX_CAPTURE_FRAMES = 180;
         const GIF_EXPORT_MAX_WIDTH = 640;
+        const GIF_EXPORT_MAX_BYTES = 9_000_000; // Google 사이트도구 업로드를 고려한 9MB 상한
         const GIF_EXPORT_MOTION_SLOWDOWN = 1;
+        const GIF_EXPORT_MAX_REENCODE_PASSES = 6;
         let isGifExporting = false;
         let gifRecorder = null;
         let gifCaptureTimer = null;
         let gifCapturedFrameCount = 0;
+        let gifCaptureFps = GIF_EXPORT_MAX_FPS;
+        let gifFrameDelayMs = Math.round(1000 / GIF_EXPORT_MAX_FPS);
 
         function setGifStatus(message) {
             const status = document.getElementById('gif-status');
@@ -1190,7 +1708,93 @@
             return gifWorkerBlobUrl;
         }
 
-        function startGifRecording() {
+        function createGifEncoder(width, height) {
+            return new GIF({
+                workers: 2,
+                quality: 12,
+                width,
+                height,
+                workerScript: getGifWorkerScriptUrl()
+            });
+        }
+
+        function estimateCommandQueueDurationMs(commandQueue) {
+            return commandQueue.reduce((total, command) => {
+                if (command.type === 'work') {
+                    return total + getWorkDurationMs(command.args[12]);
+                }
+                if (command.type === 'pause') {
+                    return total + Math.max(0, Number(command.args[0]) || 0);
+                }
+                return total;
+            }, 0);
+        }
+
+        function makeGifCapturePlan(commandQueue) {
+            const estimatedDurationMs = Math.max(100, estimateCommandQueueDurationMs(commandQueue));
+            // 긴 코드도 원본 캡처 프레임이 무한히 늘어나지 않도록 최대 180프레임을 기준으로 FPS를 자동 계산합니다.
+            const frameBudgetFps = Math.floor((GIF_EXPORT_MAX_CAPTURE_FRAMES - 1) * 1000 / estimatedDurationMs);
+            const fps = Math.max(1, Math.min(GIF_EXPORT_MAX_FPS, frameBudgetFps || 1));
+            const estimatedFrames = Math.min(
+                GIF_EXPORT_MAX_CAPTURE_FRAMES,
+                Math.ceil(estimatedDurationMs * fps / 1000) + 1
+            );
+            return { estimatedDurationMs, fps, estimatedFrames };
+        }
+
+        async function updateCodeAnalysisPreview() {
+            const textarea = document.getElementById('input-multi-code');
+            const validation = document.getElementById('code-validation-status');
+            const summary = document.getElementById('code-analysis-summary');
+            const gifPreview = document.getElementById('gif-plan-preview');
+            const code = textarea ? textarea.value : '';
+
+            if (!normalizeUserCode(code)) {
+                if (validation) {
+                    validation.textContent = '코드를 입력하면 실행 가능 여부를 확인합니다.';
+                    validation.className = 'mt-2 text-[11px] min-h-[1rem] text-gray-400';
+                }
+                if (summary) summary.textContent = 'Work 0개 · 대기 0초 · 예상 실행시간 0초';
+                if (gifPreview) gifPreview.textContent = 'GIF: 코드 길이에 따라 FPS와 프레임 수를 자동 조절합니다.';
+                return;
+            }
+
+            try {
+                const queue = await buildCommandQueueFromUserCode(code);
+                const workCount = queue.filter(c => c.type === 'work').length;
+                const pauseMs = queue.filter(c => c.type === 'pause').reduce((sum, c) => sum + Math.max(0, Number(c.args[0]) || 0), 0);
+                const returnCount = queue.filter(c => c.type === 'returnBase').length;
+                const totalMs = estimateCommandQueueDurationMs(queue);
+                const plan = makeGifCapturePlan(queue);
+
+                if (validation) {
+                    validation.textContent = queue.length ? '✓ 실행 가능한 코드입니다.' : '⚠ 실행할 Work(), pause(), 복귀() 명령이 없습니다.';
+                    validation.className = queue.length
+                        ? 'mt-2 text-[11px] min-h-[1rem] text-green-300'
+                        : 'mt-2 text-[11px] min-h-[1rem] text-amber-300';
+                }
+                if (summary) {
+                    summary.textContent = `Work ${workCount}개 · 대기 ${formatDurationForUi(pauseMs)} · 복귀 ${returnCount}회 · 예상 실행시간 ${formatDurationForUi(totalMs)}`;
+                }
+                if (gifPreview) {
+                    gifPreview.textContent = `GIF 예상: 자동 ${plan.fps}fps · 약 ${plan.estimatedFrames}프레임 · 9MB 이하 자동 최적화`;
+                }
+            } catch (error) {
+                if (validation) {
+                    validation.textContent = `⚠ 코드 확인 필요: ${error.message}`;
+                    validation.className = 'mt-2 text-[11px] min-h-[1rem] text-red-300';
+                }
+                if (summary) summary.textContent = '코드를 수정하면 실행시간을 다시 계산합니다.';
+                if (gifPreview) gifPreview.textContent = 'GIF 예상 정보를 계산할 수 없습니다.';
+            }
+        }
+
+        function scheduleCodeAnalysisPreview() {
+            clearTimeout(codeAnalysisTimer);
+            codeAnalysisTimer = setTimeout(updateCodeAnalysisPreview, 180);
+        }
+
+        function startGifRecording(captureFps) {
             if (typeof GIF === 'undefined') {
                 throw new Error('GIF 저장 라이브러리를 불러오지 못했습니다. 인터넷 연결 또는 CDN 차단 여부를 확인해 주세요.');
             }
@@ -1200,33 +1804,29 @@
 
             stopGifFrameTimerOnly();
             gifCapturedFrameCount = 0;
+            gifCaptureFps = Math.max(1, Math.min(GIF_EXPORT_MAX_FPS, Math.round(Number(captureFps) || GIF_EXPORT_MAX_FPS)));
+            gifFrameDelayMs = Math.max(17, Math.round(1000 / gifCaptureFps));
+
             const firstCanvas = getGifCaptureCanvas();
             if (!firstCanvas) throw new Error('GIF 캡처용 캔버스를 만들 수 없습니다.');
 
-            gifRecorder = new GIF({
-                workers: 2,
-                quality: 12,
-                width: firstCanvas.width,
-                height: firstCanvas.height,
-                workerScript: getGifWorkerScriptUrl()
-            });
+            gifRecorder = createGifEncoder(firstCanvas.width, firstCanvas.height);
 
-            const delay = Math.round(1000 / GIF_EXPORT_FPS);
             const addCurrentFrame = () => {
                 if (!gifRecorder || !renderer || !renderer.domElement) return;
                 if (renderer && scene && camera) renderer.render(scene, camera);
                 const frameCanvas = getGifCaptureCanvas();
                 if (!frameCanvas) return;
-                gifRecorder.addFrame(frameCanvas, { copy: true, delay });
+                gifRecorder.addFrame(frameCanvas, { copy: true, delay: gifFrameDelayMs });
                 gifCapturedFrameCount += 1;
-                if (gifCapturedFrameCount % GIF_EXPORT_FPS === 0) {
-                    setGifStatus(`GIF 녹화 중... ${Math.round(gifCapturedFrameCount / GIF_EXPORT_FPS)}초`);
+                if (gifCapturedFrameCount % Math.max(1, gifCaptureFps) === 0) {
+                    setGifStatus(`GIF 녹화 중... ${gifCaptureFps}fps · ${gifCapturedFrameCount}프레임`);
                 }
             };
 
             addCurrentFrame();
-            gifCaptureTimer = setInterval(addCurrentFrame, delay);
-            setGifStatus('GIF 녹화 시작');
+            gifCaptureTimer = setInterval(addCurrentFrame, gifFrameDelayMs);
+            setGifStatus(`GIF 녹화 시작 · 자동 ${gifCaptureFps}fps`);
         }
 
         function stopGifFrameTimerOnly() {
@@ -1236,16 +1836,88 @@
             }
         }
 
-        function renderGifToBlob() {
+        function renderGifToBlob(recorder = gifRecorder) {
             return new Promise((resolve, reject) => {
-                if (!gifRecorder) {
+                if (!recorder) {
                     reject(new Error('렌더링할 GIF 녹화 데이터가 없습니다.'));
                     return;
                 }
-                gifRecorder.on('finished', blob => resolve(blob));
-                gifRecorder.on('abort', () => reject(new Error('GIF 생성이 중단되었습니다.')));
-                gifRecorder.render();
+                recorder.on('finished', blob => resolve(blob));
+                recorder.on('abort', () => reject(new Error('GIF 생성이 중단되었습니다.')));
+                recorder.render();
             });
+        }
+
+        function buildReducedGifRecorder(sourceRecorder, frameStep) {
+            const sourceFrames = sourceRecorder?.frames || [];
+            const width = sourceRecorder?.options?.width;
+            const height = sourceRecorder?.options?.height;
+            if (!width || !height || sourceFrames.length < 2) {
+                throw new Error('GIF 프레임을 자동 축소할 수 없습니다.');
+            }
+
+            const step = Math.max(1, Math.min(sourceFrames.length - 1, Math.floor(frameStep)));
+            const reducedRecorder = createGifEncoder(width, height);
+
+            for (let groupStart = 0; groupStart < sourceFrames.length; groupStart += step) {
+                const groupEnd = Math.min(sourceFrames.length, groupStart + step);
+                let representativeIndex;
+                if (groupStart === 0) representativeIndex = 0;
+                else if (groupEnd === sourceFrames.length) representativeIndex = sourceFrames.length - 1;
+                else representativeIndex = Math.floor((groupStart + groupEnd - 1) / 2);
+
+                const frame = sourceFrames[representativeIndex];
+                if (!frame?.data) continue;
+
+                let combinedDelay = 0;
+                for (let i = groupStart; i < groupEnd; i++) {
+                    combinedDelay += Math.max(10, Number(sourceFrames[i]?.delay) || gifFrameDelayMs);
+                }
+
+                const imageData = new ImageData(frame.data, width, height);
+                reducedRecorder.addFrame(imageData, { delay: combinedDelay });
+            }
+
+            return reducedRecorder;
+        }
+
+        async function renderGifUnderSizeLimit(sourceRecorder) {
+            let blob = await renderGifToBlob(sourceRecorder);
+            let usedFrameCount = sourceRecorder.frames.length;
+            if (blob.size <= GIF_EXPORT_MAX_BYTES) {
+                return { blob, frameCount: usedFrameCount, optimized: false };
+            }
+
+            const sourceFrameCount = sourceRecorder.frames.length;
+            let frameStep = Math.max(2, Math.ceil(blob.size / GIF_EXPORT_MAX_BYTES));
+
+            for (let pass = 1; pass <= GIF_EXPORT_MAX_REENCODE_PASSES; pass++) {
+                frameStep = Math.min(sourceFrameCount - 1, frameStep);
+                setGifStatus(`9MB 초과 · 프레임 자동 최적화 ${pass}/${GIF_EXPORT_MAX_REENCODE_PASSES}`);
+
+                const reducedRecorder = buildReducedGifRecorder(sourceRecorder, frameStep);
+                blob = await renderGifToBlob(reducedRecorder);
+                usedFrameCount = reducedRecorder.frames.length;
+
+                if (blob.size <= GIF_EXPORT_MAX_BYTES) {
+                    return { blob, frameCount: usedFrameCount, optimized: true };
+                }
+
+                if (frameStep >= sourceFrameCount - 1) break;
+                const sizeRatio = blob.size / GIF_EXPORT_MAX_BYTES;
+                frameStep = Math.max(frameStep + 1, Math.ceil(frameStep * sizeRatio * 1.12));
+            }
+
+            // 마지막 안전장치: 시작/종료 상태 중심으로 최소 프레임까지 줄여 실제 파일 크기를 다시 확인합니다.
+            const finalRecorder = buildReducedGifRecorder(sourceRecorder, Math.max(1, sourceFrameCount - 1));
+            blob = await renderGifToBlob(finalRecorder);
+            usedFrameCount = finalRecorder.frames.length;
+
+            if (blob.size > GIF_EXPORT_MAX_BYTES) {
+                throw new Error(`프레임을 최소화했지만 GIF가 ${(blob.size / 1_000_000).toFixed(2)}MB입니다. 화면 해상도를 더 낮춰야 합니다.`);
+            }
+
+            return { blob, frameCount: usedFrameCount, optimized: true };
         }
 
         function downloadBlob(blob, filename) {
@@ -1266,35 +1938,51 @@
         }
 
         async function executeCustomCodeAndSaveGif(codeStr) {
-            if (isAnimating) return;
-            const gifButton = document.getElementById('btn-export-gif');
-            const multiButton = document.getElementById('btn-exec-multi');
+            if (isSequenceExecuting || isGifExporting || isAnimating) return;
+            if (motorInputs.some(input => input && String(input.value).trim() !== '')) clearMotorPreviewInputs();
             try {
-                if (gifButton) gifButton.disabled = true;
-                if (multiButton) multiButton.disabled = true;
+                const commandQueue = await buildCommandQueueFromUserCode(codeStr);
+                if (commandQueue.length === 0) {
+                    setExecutionStatus('실행할 코드가 없습니다.', 'error');
+                    return;
+                }
+
+                const capturePlan = makeGifCapturePlan(commandQueue);
+                const seconds = (capturePlan.estimatedDurationMs / 1000).toFixed(1);
+                setGifStatus(`delay ${getRobotWorkStepDelayMs()}ms · 예상 ${seconds}초 · 자동 ${capturePlan.fps}fps · 약 ${capturePlan.estimatedFrames}프레임`);
+
                 isGifExporting = true;
-                startGifRecording();
-                await executeCustomCode(codeStr);
+                updateExecutionControlState();
+                startGifRecording(capturePlan.fps);
+                const executionResult = await executeCustomCode(codeStr, commandQueue);
                 stopGifFrameTimerOnly();
 
+                if (executionResult?.stopped || executionStopRequested) {
+                    setGifStatus('GIF 저장 취소됨');
+                    setExecutionStatus('실행이 중지되었습니다.', 'error');
+                    return;
+                }
                 if (gifCapturedFrameCount < 2) {
                     throw new Error('캡처된 프레임이 너무 적습니다. 실행할 Work() 코드가 있는지 확인해 주세요.');
                 }
 
                 setGifStatus(`GIF 생성 중... ${gifCapturedFrameCount}프레임`);
-                const blob = await renderGifToBlob();
-                downloadBlob(blob, makeGifFilename());
-                setGifStatus(`GIF 저장 완료 (${gifCapturedFrameCount}프레임)`);
+                const result = await renderGifUnderSizeLimit(gifRecorder);
+                downloadBlob(result.blob, makeGifFilename());
+
+                const sizeMb = (result.blob.size / 1_000_000).toFixed(2);
+                const optimizedText = result.optimized ? ' · 9MB 맞춤 자동 최적화' : '';
+                setGifStatus(`GIF 저장 완료 · ${sizeMb}MB · ${result.frameCount}프레임${optimizedText}`);
+                setExecutionStatus(`✓ GIF 저장 완료 · ${sizeMb}MB`, 'done');
             } catch (error) {
                 stopGifFrameTimerOnly();
                 console.error('GIF 저장 오류:', error);
                 setGifStatus('GIF 저장 오류');
-                alert('GIF 저장 중 오류가 발생했습니다.\n\n' + error.message);
+                setExecutionStatus(`⚠ GIF 저장 오류: ${error.message}`, 'error');
             } finally {
                 gifRecorder = null;
                 isGifExporting = false;
-                if (gifButton) gifButton.disabled = false;
-                if (multiButton) multiButton.disabled = false;
+                updateExecutionControlState();
             }
         }
 
@@ -1322,8 +2010,10 @@
                 return Promise.resolve();
             };
             const queuedReturnFunction = async () => {
+                // 실제 로봇의 복귀() 함수 내부 보정값은 로봇 코드 자체에서 처리합니다.
+                // 시뮬레이터에서는 별도의 ±1도 보정 Work를 추가하지 않고 기본 자세로만 복귀합니다.
                 queuedBasicPoseReset();
-                return queuedWork(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4);
+                return Promise.resolve();
             };
             const basic = { pause: queuedPause };
 
@@ -1484,36 +2174,59 @@ ${returnCode}` : returnCode;
             await updateReturnCorrectionPreview();
         }
 
-        async function executeCustomCode(codeStr) {
-            if (isAnimating) return;
+        async function executeCustomCode(codeStr, preparedCommandQueue = null) {
+            if (isSequenceExecuting || isAnimating) return { stopped: false, skipped: true };
+
+            if (motorInputs.some(input => input && String(input.value).trim() !== '')) clearMotorPreviewInputs();
+            isSequenceExecuting = true;
+            executionStopRequested = false;
+            updateExecutionControlState();
 
             try {
-                const commandQueue = await buildCommandQueueFromUserCode(codeStr);
-
+                const commandQueue = preparedCommandQueue || await buildCommandQueueFromUserCode(codeStr);
                 console.clear();
                 console.log(`등록된 명령 수: ${commandQueue.length}`, commandQueue);
 
                 if (commandQueue.length === 0) {
-                    alert('실행할 Work() 또는 pause() 명령이 없습니다.');
-                    return;
+                    setExecutionStatus('실행할 Work(), pause(), 복귀() 명령이 없습니다.', 'error');
+                    return { stopped: false, empty: true };
                 }
 
-                // 큐에 쌓인 명령을 하나씩 끝까지 실행합니다.
-                // 여기서는 원래 Work()를 다시 호출하지 않고 runWorkNow()만 호출하여 중복 대기/상태 충돌을 없앴습니다.
                 for (let i = 0; i < commandQueue.length; i++) {
+                    if (executionStopRequested) break;
                     const command = commandQueue[i];
+                    const typeText = command.type === 'work' ? 'Work' : command.type === 'pause' ? '대기' : '복귀';
+                    setExecutionStatus(`실행 중... ${i + 1} / ${commandQueue.length} · ${typeText}`, 'working');
                     console.log(`실행 중: ${i + 1}/${commandQueue.length}`, command);
+
                     if (command.type === 'returnBase') {
                         setWorkListToBasicPose();
                     } else if (command.type === 'work') {
                         await runWorkNow(...command.args);
                     } else if (command.type === 'pause') {
-                        await pause(command.args[0]);
+                        await pauseInterruptibly(command.args[0]);
                     }
                 }
+
+                if (executionStopRequested) {
+                    setExecutionStatus('■ 실행이 중지되었습니다.', 'error');
+                    return { stopped: true };
+                }
+
+                setExecutionStatus(`✓ 실행 완료 · ${commandQueue.length}개 명령`, 'done');
+                return { stopped: false };
             } catch (error) {
                 console.error('사용자 코드 실행 오류:', error);
-                alert('코드 실행 중 오류가 발생했습니다.\n\n' + error.message);
+                setExecutionStatus(`⚠ 실행 오류: ${error.message}`, 'error');
+                const validation = document.getElementById('code-validation-status');
+                if (validation) {
+                    validation.textContent = `⚠ 코드 확인 필요: ${error.message}`;
+                    validation.className = 'mt-2 text-[11px] min-h-[1rem] text-red-300';
+                }
+                return { stopped: false, error };
+            } finally {
+                isSequenceExecuting = false;
+                updateExecutionControlState();
             }
         }
 
@@ -1533,7 +2246,7 @@ ${returnCode}` : returnCode;
             }
         });
         document.getElementById('btn-reset').addEventListener('click', () => resetPosition(true));
-        document.getElementById('btn-apply-changes').addEventListener('click', applyChanges);
+        document.getElementById('btn-append-current-work').addEventListener('click', appendCurrentMotorChangesToMultiCode);
         
         document.getElementById('btn-toggle-gravity').addEventListener('click', (e) => {
             useGravity = !useGravity;
@@ -1564,25 +2277,73 @@ ${returnCode}` : returnCode;
         document.getElementById('btn-macro-wave1').addEventListener('click', async () => { if (!isAnimating) await macroWave1(); });
         document.getElementById('btn-macro-wave2').addEventListener('click', async () => { if (!isAnimating) await macroWave2(); });
         
-        document.getElementById('btn-exec-single').addEventListener('click', async () => { 
+        document.getElementById('btn-exec-single').addEventListener('click', async () => {
             const val = document.getElementById('input-single-code').value;
-            if(val) await executeCustomCode(val);
+            if (val) await executeCustomCode(val);
         });
+
+        const robotDelaySelect = document.getElementById('robot-delay-select');
+        setRobotWorkStepDelayMs(robotDelaySelect ? robotDelaySelect.value : ROBOT_WORK_STEP_DELAY_DEFAULT_MS);
+        robotDelaySelect?.addEventListener('change', () => {
+            const appliedDelay = setRobotWorkStepDelayMs(robotDelaySelect.value);
+            setGifStatus(`로봇 delay ${appliedDelay}ms 적용 · GIF 9MB 이하 자동 조절`);
+            scheduleCodeAnalysisPreview();
+        });
+
         const multiCodeInput = document.getElementById('input-multi-code');
-        multiCodeInput.addEventListener('input', scheduleReturnCorrectionPreview);
-        multiCodeInput.addEventListener('blur', updateReturnCorrectionPreview);
+        multiCodeInput.addEventListener('input', () => {
+            scheduleReturnCorrectionPreview();
+            scheduleCodeAnalysisPreview();
+        });
+        multiCodeInput.addEventListener('blur', () => {
+            updateReturnCorrectionPreview();
+            updateCodeAnalysisPreview();
+        });
+
+        document.getElementById('btn-toggle-editor-size').addEventListener('click', () => {
+            const button = document.getElementById('btn-toggle-editor-size');
+            const expanded = multiCodeInput.dataset.expanded === 'true';
+            multiCodeInput.dataset.expanded = expanded ? 'false' : 'true';
+            multiCodeInput.style.height = expanded ? '12rem' : '60vh';
+            button.textContent = expanded ? '⛶ 크게 보기' : '↙ 작게 보기';
+            if (!expanded) multiCodeInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+
+        document.getElementById('btn-clear-multi-code').addEventListener('click', () => {
+            if (isSequenceExecuting) return;
+            multiCodeInput.value = '';
+            multiCodeInput.focus();
+            scheduleReturnCorrectionPreview();
+            updateCodeAnalysisPreview();
+        });
+
         document.getElementById('btn-add-return-correction').addEventListener('click', appendReturnCorrectionWork);
-        document.getElementById('btn-add-return-function').addEventListener('click', appendReturnFunctionCode);
-        document.getElementById('btn-exec-multi').addEventListener('click', async () => { 
-            const val = document.getElementById('input-multi-code').value;
-            if(val) await executeCustomCode(val);
+        document.getElementById('btn-add-return-function').addEventListener('click', async () => {
+            await appendReturnFunctionCode();
+            scheduleCodeAnalysisPreview();
         });
+        document.getElementById('btn-reset-pose-multi').addEventListener('click', () => {
+            if (isSequenceExecuting || isGifExporting) return;
+            resetPosition(true);
+            setExecutionStatus('자세를 기본 자세로 초기화했습니다.', 'success');
+        });
+        document.getElementById('btn-stop-execution').addEventListener('click', requestExecutionStop);
+
+        document.getElementById('btn-exec-multi').addEventListener('click', async () => {
+            const val = multiCodeInput.value;
+            if (val) await executeCustomCode(val);
+            else setExecutionStatus('먼저 여러 줄 코드를 입력해 주세요.', 'error');
+        });
+
+        document.getElementById('btn-export-gif').addEventListener('click', async () => {
+            const val = multiCodeInput.value;
+            if (val) await executeCustomCodeAndSaveGif(val);
+            else setExecutionStatus('GIF로 저장할 코드를 먼저 입력해 주세요.', 'error');
+        });
+
+        updateExecutionControlState();
         updateReturnCorrectionPreview();
-        document.getElementById('btn-export-gif').addEventListener('click', async () => { 
-            const val = document.getElementById('input-multi-code').value;
-            if(val) await executeCustomCodeAndSaveGif(val);
-            else alert('GIF로 저장할 여러 줄 코드를 입력해 주세요.');
-        });
+        updateCodeAnalysisPreview();
         document.getElementById('btn-apply-structure').addEventListener('click', applyStructure);
         document.getElementById('btn-export-structure').addEventListener('click', exportStructure);
         init();
